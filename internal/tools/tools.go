@@ -52,6 +52,16 @@ func Specs() []Spec {
 			Name: "get_service_logs", Description: "Read recent journalctl or Docker container logs. backend defaults to systemd; scope defaults to system. Use scope=user for user systemd services; omit service for the selected journal. Defaults: 100 records from the last 60 minutes. No follow mode.",
 			Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"service":{"type":"string"},"backend":{"type":"string","enum":["systemd","docker"]},"scope":{"type":"string","enum":["system","user"],"description":"Systemd only: system (default) or the executing user's journal."},"lines":{"type":"integer","minimum":1,"maximum":500},"since_minutes":{"type":"integer","minimum":1}},"additionalProperties":false}`),
 		},
+		{
+			Name:        "read_file",
+			Description: "Read a range of lines or the last lines of one regular file. Requires an absolute path; hidden components are forbidden in both the requested path and resolved symlink target. Defaults: host_id=local, start_line=1, lines=100. Set tail=true to read the end; do not supply start_line with tail=true. No follow mode.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"path":{"type":"string","description":"Absolute path to one regular file; hidden components, . and .. are forbidden."},"start_line":{"type":"integer","minimum":1,"description":"First line, numbered from 1; default 1. Cannot be supplied with tail=true."},"lines":{"type":"integer","minimum":1,"maximum":500,"description":"Number of lines; default 100."},"tail":{"type":"boolean","description":"Read the last lines instead of a range; default false."}},"required":["path"],"additionalProperties":false}`),
+		},
+		{
+			Name:        "search_file",
+			Description: "Search one regular file and return matching lines with line numbers. Requires an absolute path; hidden components are forbidden in both the requested path and resolved symlink target. Defaults: host_id=local, literal matching, case sensitive, limit=100. Set regex=true for grep extended regular expressions. No recursive search.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"path":{"type":"string","description":"Absolute path to one regular file; hidden components, . and .. are forbidden."},"pattern":{"type":"string","minLength":1,"description":"Nonempty literal text, or an extended regular expression when regex=true."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Maximum number of matching lines; default 100."},"regex":{"type":"boolean","description":"Use extended regular expressions instead of literal matching; default false."},"ignore_case":{"type":"boolean","description":"Ignore case; default false."}},"required":["path","pattern"],"additionalProperties":false}`),
+		},
 	}
 }
 
@@ -79,6 +89,10 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.ServiceStatus(ctx, args.HostID, args.ServiceTarget)
 			case "get_service_logs":
 				out, err = t.ServiceLogs(ctx, args)
+			case "read_file":
+				out, err = t.ReadFile(ctx, args)
+			case "search_file":
+				out, err = t.SearchFile(ctx, args)
 			default:
 				return "", errors.New("tools: no handler for tool")
 			}
@@ -99,6 +113,11 @@ type toolArgs struct {
 	SinceMinutes *int   `json:"since_minutes"`
 	SortBy       string `json:"sort_by"`
 	Limit        *int   `json:"limit"`
+	StartLine    *int   `json:"start_line"`
+	Tail         bool   `json:"tail"`
+	Pattern      string `json:"pattern"`
+	Regex        bool   `json:"regex"`
+	IgnoreCase   bool   `json:"ignore_case"`
 }
 
 func decodeArgs(raw json.RawMessage) (toolArgs, error) {
