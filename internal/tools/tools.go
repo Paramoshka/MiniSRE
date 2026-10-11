@@ -180,6 +180,10 @@ type toolArgs struct {
 	Protocol        string  `json:"protocol"`
 	State           string  `json:"state"`
 	Port            *int    `json:"port"`
+
+	Query      string `json:"query"`
+	RecordType string `json:"record_type"`
+	Server     string `json:"server"`
 }
 
 func decodeArgs(raw json.RawMessage) (toolArgs, error) {
