@@ -95,8 +95,16 @@ func (t *Tools) Pipeline(ctx context.Context, raw json.RawMessage) (string, erro
 }
 
 func pipelineStageSucceeded(source string, filters []pipelineFilter, index, code int) bool {
-	allowOne := index == 0 && (source == "ping_host" || source == "search_file") || index > 0 && filters[index-1].Type == "grep"
-	return code == 0 || code == 1 && allowOne
+	if code == 0 {
+		return true
+	}
+	if code != 1 {
+		return false
+	}
+	if index == 0 {
+		return source == "ping_host" || source == "search_file"
+	}
+	return filters[index-1].Type == "grep"
 }
 
 func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
@@ -130,7 +138,27 @@ func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
 	return args, errors.New("tools: unknown pipeline source")
 }
 
+var pipelineCommands = map[string]func(toolArgs) (remote.Command, error){
+	"get_service_logs":    serviceLogsCommand,
+	"get_ip_rules":        ipRulesCommand,
+	"get_ip_routes":       ipRoutesCommand,
+	"get_route_to":        routeToCommand,
+	"ping_host":           pingCommand,
+	"get_network_sockets": socketsCommand,
+	"get_ip_neighbors":    neighborsCommand,
+	"dig_dns":             digCommand,
+	"nslookup_dns":        nslookupCommand,
+}
+
 func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (remote.Stage, error) {
+	if build, ok := pipelineCommands[name]; ok {
+		cmd, err := build(args)
+		if err != nil {
+			return remote.Stage{}, err
+		}
+		return remote.Stage{Commands: []remote.Command{cmd}}, nil
+	}
+	// These sources need context, multiple commands, or additional stage settings.
 	var cmd remote.Command
 	var err error
 	stage := remote.Stage{}
@@ -145,31 +173,13 @@ func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (re
 		stage.HeadLines = limit + 1
 	case "get_service_status":
 		cmd, _, err = serviceStatusCommand(args.ServiceTarget)
-	case "get_service_logs":
-		cmd, err = serviceLogsCommand(args)
 	case "read_file":
 		cmd, err = t.readFileCommand(ctx, args)
 	case "search_file":
 		cmd, err = t.searchFileCommand(ctx, args)
-	case "get_ip_rules":
-		cmd, err = ipRulesCommand(args)
-	case "get_ip_routes":
-		cmd, err = ipRoutesCommand(args)
-	case "get_route_to":
-		cmd, err = routeToCommand(args)
-	case "ping_host":
-		cmd, err = pingCommand(args)
-	case "get_network_sockets":
-		cmd, err = socketsCommand(args)
 	case "get_network_interfaces":
 		stage.Commands, err = interfacesCommands(args)
 		return stage, err
-	case "get_ip_neighbors":
-		cmd, err = neighborsCommand(args)
-	case "dig_dns":
-		cmd, err = digCommand(args)
-	case "nslookup_dns":
-		cmd, err = nslookupCommand(args)
 	case "curl_http":
 		if args.Download {
 			return stage, errors.New("tools: pipeline source cannot use download; use stdout=file instead")
