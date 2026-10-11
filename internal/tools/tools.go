@@ -107,6 +107,11 @@ func Specs() []Spec {
 			Description: "Run a noninteractive bounded nslookup DNS query from the selected host. Requires one ASCII DNS name or IP; IP queries are reverse PTR lookups. Defaults: host_id=local, record_type=A for names or PTR for IPs, system DNS servers, port=53. Timeout 2 seconds, retry=1, no search suffixes. Nonzero exit codes retain diagnostic output, including negative DNS answers. Sends DNS requests without changing configuration; no zone transfers or arbitrary flags.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"query":{"type":"string","description":"One ASCII DNS name (including SRV underscores or a trailing dot), or IPv4/IPv6 address without a zone for reverse lookup."},"record_type":{"type":"string","enum":["A","AAAA","CNAME","MX","NS","TXT","SOA","SRV","PTR","CAA"],"description":"Default A for names; IP queries require PTR and default to it."},"server":{"type":"string","description":"Optional DNS server as an IPv4/IPv6 address without a zone; default system DNS servers."},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"DNS server port; default 53."}},"required":["query"],"additionalProperties":false}`),
 		},
+		{
+			Name:        "curl_http",
+			Description: "Run a bounded HTTP/HTTPS GET or HEAD from one host, retaining status, response headers, server IP, timings and a body preview. Defaults: host_id=local, method=GET, verified TLS, no redirects; connection timeout 3s, transfer timeout 10s, max body 10 MiB. HTTP 4xx/5xx are diagnostic responses; inspect the HTTP status. Optional headers, follow_redirects (max 5), and insecure (only when explicitly requested by the user). download=true saves the raw body under the original URL filename in a new private /tmp/mini-sre-* directory on the selected host. No uploads, credentials in URLs, arbitrary flags or output paths; requires curl >= 8.4.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"url":{"type":"string","description":"Required absolute http:// or https:// URL, without embedded credentials."},"method":{"type":"string","enum":["GET","HEAD"],"description":"Default GET."},"headers":{"type":"object","additionalProperties":{"type":"string"},"description":"Custom header name/value pairs; no CR/LF/NUL or header files."},"follow_redirects":{"type":"boolean","description":"Default false; follow up to five HTTP/HTTPS redirects."},"insecure":{"type":"boolean","description":"Default false; disable certificate verification only when explicitly requested by the user."},"download":{"type":"boolean","description":"GET only; save raw body to a private /tmp/mini-sre-* directory using a non-hidden filename from the original URL. Default false."}},"required":["url"],"additionalProperties":false}`),
+		},
 	}
 	return append(specs, pipelineSpec(specs))
 }
@@ -163,6 +168,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.NslookupDNS(ctx, args)
 			case "run_pipeline":
 				out, err = t.Pipeline(ctx, raw)
+			case "curl_http":
+				out, err = t.CurlHTTP(ctx, args)
 			default:
 				return "", errors.New("tools: no handler for tool")
 			}
@@ -205,6 +212,13 @@ type toolArgs struct {
 	Query      string `json:"query"`
 	RecordType string `json:"record_type"`
 	Server     string `json:"server"`
+
+	URL             string            `json:"url"`
+	Method          string            `json:"method"`
+	Headers         map[string]string `json:"headers"`
+	FollowRedirects bool              `json:"follow_redirects"`
+	Insecure        bool              `json:"insecure"`
+	Download        bool              `json:"download"`
 }
 
 func decodeArgs(raw json.RawMessage) (toolArgs, error) {

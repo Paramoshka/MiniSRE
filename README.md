@@ -13,6 +13,7 @@ history, and function calling.
 - bounded file reading and search, with hidden paths blocked;
 - network interfaces, policy rules, routing tables/lookups, neighbors, sockets and bounded ICMP probes;
 - bounded DNS queries with dig and nslookup, including reverse IP lookups;
+- HTTP GET/HEAD checks and downloads with curl, plus diagnostic pipelines and private `/tmp` artifacts;
 - the same probes run locally or over SSH on hosts configured in YAML;
 - a Telegram bot for personal messages and forwarded text from allowed users;
 - persistent scheduled agent checks, incident notifications and periodic summaries;
@@ -42,6 +43,12 @@ without attempting to elevate privileges.
 
 DNS probes require BIND `dig` and `nslookup`, locally or in the SSH user's
 noninteractive PATH.
+
+HTTP probes require curl >= 8.4, including on remote hosts. Pipelines and HTTP
+probes also require Bash and GNU coreutils (`timeout`, `mktemp`, `mkdir`, `stat`,
+`head`, `cat`, `rm`, `rmdir`); filters use GNU `grep`, `tail` and sandboxed `sed`.
+These commands must be in the executing user's noninteractive PATH. No PTY or
+privilege escalation is used.
 
 ## Usage
 
@@ -188,6 +195,8 @@ All probes except `list_hosts` accept `host_id`, defaulting to `local`.
 | `get_ip_neighbors` | `family=ipv4`, optional `interface` | ARP or NDP neighbor cache entries and states |
 | `dig_dns` | required `query`; optional `record_type`, `server`, `port` | bounded DNS query with full dig output and DNS status |
 | `nslookup_dns` | required `query`; optional `record_type`, `server`, `port` | bounded noninteractive DNS query with nslookup |
+| `curl_http` | required `url`; `method=GET`, optional `headers`, `follow_redirects=false`, `insecure=false`, `download=false` | HTTP/HTTPS response status, headers, server IP, timings and body preview, or saved raw body |
+| `run_pipeline` | required `source`; optional `filters`, `stdout=inline`, `stderr=inline` | source output through validated filters; return, save or discard streams, retaining all stage statuses |
 
 `backend` is `systemd` or `docker`, selected per request. Systemd names may omit
 the `.service` suffix; Docker targets are container names or IDs, not Compose or
@@ -303,6 +312,97 @@ A resolved name alone does not prove application health.
 
 Example requests: "dig AAAA example.com on web-1 using DNS server 192.0.2.53",
 "nslookup MX example.com", and "reverse DNS lookup of 192.0.2.5".
+
+### HTTP checks and downloads
+
+`curl_http` accepts one absolute HTTP/HTTPS URL without embedded credentials.
+`method` is `GET` (default) or `HEAD`; request bodies and uploads are not exposed.
+`headers` is a name/value object, including `Host` or `Accept`. Header names are
+validated; CR/LF/NUL in values and reading headers from files are forbidden.
+Requests retain the host's normal proxy and CA environment settings. `.curlrc`
+and URL globbing are disabled, and only HTTP/HTTPS protocols are allowed.
+
+Defaults are a three-second connection timeout, ten-second transfer timeout,
+verified TLS, no redirects and no retries. `follow_redirects=true` follows at
+most five HTTP/HTTPS redirects. Custom headers follow curl's normal redirect
+behavior; trusted-location authentication forwarding is not enabled.
+`insecure=true` disables certificate verification and is only for explicit user
+requests; the result records that it was disabled. HTTP 4xx/5xx retain their
+status and body as diagnostic responses. DNS, connection, TLS, timeout and size
+errors retain the execution diagnostic instead of being reported as successful
+checks. Response metadata and headers precede the body preview.
+
+`download=true` requires GET and a URL ending in a non-hidden filename, at most
+255 bytes. The body is saved as `/tmp/mini-sre-XXXXXXXXXX/data/<filename>` on the
+selected host. The name comes from the original URL without its query string;
+percent escapes stay encoded, and `Content-Disposition` is ignored. The result
+reports the host, path and byte count. Repeated downloads use separate directories.
+The transfer is capped at 10 MiB even without `Content-Length`; curl >= 8.4 is
+checked before the request. Failed downloads can retain a bounded partial file,
+marked `possibly_partial=true` in the error report.
+
+### Pipelines and output files
+
+`run_pipeline` chooses a source by its existing tool name and arguments. Sources
+are all command-based diagnostic tools, including curl; `list_hosts` and nested
+pipelines are excluded. Source arguments keep their original validation and
+defaults. `host_id` belongs to the pipeline, and applies to every stage. Source
+streams contain raw command output rather than standalone human-readable
+formatting; top processes still respects its requested row limit. Interfaces
+emit address output followed by link counters.
+
+Up to four stdin filters are allowed: `grep` (literal by default, optional
+`regex`/`ignore_case`, `limit=100`), `head`/`tail` (`lines=100`), or `sed` as a line
+range (`start_line=1`, `lines=100`). Match and line limits accept 1..500. No
+arbitrary programs, argv, shell expressions, sed scripts or filter file paths
+are exposed. Filters run before the final preview is limited, so a match beyond
+the first 64 KiB can still be found. Limiting filters drain their remaining input
+to avoid a misleading upstream SIGPIPE error.
+
+`stdout` supports `inline`, `file` or `discard`; `stderr` additionally supports
+`merge`, joining each stage's stderr into its stdout before the next filter.
+Defaults are separate inline streams. Discarding both streams is the equivalent
+of hiding data with `>/dev/null 2>&1`; execution status remains visible. Every
+stage's exit code is returned. Grep exit code 1 means an empty result, and ping
+exit code 1 retains its packet-loss meaning; other unexpected codes are errors.
+Execution status does not establish service or application health.
+
+Example: nginx logs containing errors, last 50 matches, saved on `web`:
+
+```json
+{
+  "host_id": "web",
+  "source": {"tool": "get_service_logs", "args": {"service": "nginx", "lines": 500}},
+  "filters": [
+    {"type": "grep", "pattern": "error", "ignore_case": true},
+    {"type": "tail", "lines": 50}
+  ],
+  "stdout": "file",
+  "stderr": "merge"
+}
+```
+
+Without filters, any allowed source can be saved or run with hidden output.
+For curl as a source, `download=true` is forbidden: use `stdout=file` to save the
+body as the pipeline's `stdout.txt`. HTTP status, headers and timings remain
+separate from the filtered body.
+
+Pipelines and HTTP checks have a shared 15-second deadline covering preparation,
+SSH and execution. Files are capped at 10 MiB each by the process's file-size
+limit. Inline previews include up to 32 KiB stdout, 16 KiB stderr, 8 KiB HTTP
+headers and 4 KiB HTTP metadata within the Runner's 64 KiB capture budget.
+Truncation is marked. Temporary directories use mode 0700 and files mode 0600.
+Only requested output files are retained after normal completion; errors also
+retain requested diagnostic artifacts. Read them with `read_file`/`search_file`
+on the same host. Saved files contain raw bytes, potentially including secrets;
+only responses sent to the model are redacted. Files stay until host `/tmp`
+cleanup; the agent has no general file-writing, deletion or execution tool.
+
+Local cancellation stops the pipeline's process group. Remote cancellation sends
+a termination signal when possible; an independent remote watchdog also bounds
+execution after a disconnect. If no final report is received, statuses are `-1`
+and `execution_complete=false`; announced artifact paths may be unconfirmed.
+Interrupted jobs can leave private temporary files.
 
 Each command has a 15-second timeout, including SSH connection and handshake.
 Captured stdout and stderr together are limited to 64 KiB, with an explicit

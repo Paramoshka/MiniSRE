@@ -15,6 +15,9 @@ func pipelineSpec(sources []Spec) Spec {
 			panic(err)
 		}
 		delete(schema["properties"].(map[string]any), "host_id")
+		if source.Name == "curl_http" {
+			schema["properties"].(map[string]any)["download"] = map[string]any{"type": "boolean", "enum": []bool{false}, "description": "Use the pipeline stdout=file mode to save the body."}
+		}
 		variants = append(variants, map[string]any{
 			"type": "object", "additionalProperties": false,
 			"properties": map[string]any{"tool": map[string]any{"type": "string", "enum": []string{source.Name}}, "args": schema},

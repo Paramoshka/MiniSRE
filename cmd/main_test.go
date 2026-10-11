@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -16,6 +17,68 @@ import (
 	"mini-sre/internal/config"
 	"mini-sre/internal/session"
 )
+
+func TestAgentUsesPipelineAndCurl(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip(err)
+	}
+	t.Setenv("NO_PROXY", "*")
+	t.Setenv("no_proxy", "*")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "journalctl"), []byte("#!/bin/sh\nprintf 'error agent-secret\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "HTTP body agent-secret") }))
+	defer server.Close()
+	curlArgs, err := json.Marshal(map[string]any{"url": server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Hosts: map[string]config.Host{"web": {Password: "agent-secret"}}}
+	calls := 0
+	s := &session.Session{
+		Tools: toolSpecs(), RunTool: toolRunner(func() config.Config { return cfg }),
+		Turn: func(_ context.Context, req agent.Request) (*agent.Response, error) {
+			calls++
+			if calls == 1 {
+				names := map[string]bool{}
+				for _, tool := range req.Tools {
+					names[tool.Name] = true
+				}
+				if !names["run_pipeline"] || !names["curl_http"] {
+					t.Fatal("new tool definitions missing")
+				}
+				return &agent.Response{ToolCalls: []agent.ToolCall{
+					{ID: "logs", Name: "run_pipeline", Arguments: `{"source":{"tool":"get_service_logs"},"filters":[{"type":"grep","pattern":"error"}]}`},
+					{ID: "http", Name: "curl_http", Arguments: string(curlArgs)},
+				}}, nil
+			}
+			results := map[string]string{}
+			for _, m := range req.Messages {
+				if m.Role == agent.RoleTool {
+					results[m.ToolCallID] = m.Content
+				}
+			}
+			if strings.Contains(results["http"], "curl >= 8.4") {
+				t.Skip("installed curl is older than required")
+			}
+			for name, out := range results {
+				if strings.HasPrefix(out, "error:") || strings.Contains(out, "agent-secret") {
+					t.Fatalf("%s result = %q", name, out)
+				}
+			}
+			if !strings.Contains(results["logs"], "error [redacted]") || !strings.Contains(results["http"], "HTTP body [redacted]") {
+				t.Fatalf("missing results: %+v", results)
+			}
+			return &agent.Response{Content: "Checked"}, nil
+		},
+	}
+	response, err := s.Ask(context.Background(), "Check logs and HTTP")
+	if err != nil || response.Content != "Checked" || calls != 2 {
+		t.Fatalf("agent flow = %+v, %v, calls=%d", response, err, calls)
+	}
+}
 
 func TestConfiguredAgentUsesProbesWithoutExposingCredentials(t *testing.T) {
 	dir := t.TempDir()
@@ -59,7 +122,7 @@ func TestConfiguredAgentUsesProbesWithoutExposingCredentials(t *testing.T) {
 					Function struct{ Name string } `json:"function"`
 				} `json:"tools"`
 			}
-			if err := json.Unmarshal(body, &req); err != nil || len(req.Tools) != 18 {
+			if err := json.Unmarshal(body, &req); err != nil || len(req.Tools) != 19 {
 				t.Errorf("tool definitions missing: %v, %d", err, len(req.Tools))
 			}
 			io.WriteString(w, `{"id":"first","choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"id":"hosts","type":"function","function":{"name":"list_hosts","arguments":"{}"}},{"id":"la","type":"function","function":{"name":"get_load_average","arguments":"{}"}},{"id":"disk","type":"function","function":{"name":"get_disk_usage","arguments":"{\"path\":\"/\"}"}},{"id":"systemd","type":"function","function":{"name":"get_service_status","arguments":"{\"service\":\"nginx\"}"}},{"id":"docker","type":"function","function":{"name":"get_service_status","arguments":"{\"service\":\"web\",\"backend\":\"docker\"}"}},{"id":"journal","type":"function","function":{"name":"get_service_logs","arguments":"{}"}},{"id":"container_logs","type":"function","function":{"name":"get_service_logs","arguments":"{\"service\":\"web\",\"backend\":\"docker\"}"}},{"id":"processes","type":"function","function":{"name":"get_top_processes","arguments":"{\"sort_by\":\"cpu\",\"limit\":3}"}}]}}]}`)

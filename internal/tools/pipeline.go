@@ -76,18 +76,27 @@ func (t *Tools) Pipeline(ctx context.Context, raw json.RawMessage) (string, erro
 	}
 	plan.Stages = append([]remote.Stage{source}, plan.Stages...)
 	result, err := t.Runner.RunPipeline(ctx, args.HostID, plan)
+	if args.Source.Tool == "curl_http" && len(result.Codes) > 0 && result.Codes[0] == 63 {
+		result.Limited = true
+	}
 	out := pipelineOutput(args.HostID, args.Source.Tool, args.Filters, result)
+	if args.Source.Tool == "curl_http" && sourceArgs.Insecure {
+		out = "TLS certificate verification disabled (insecure=true).\n" + out
+	}
 	if err != nil {
 		return "", fmt.Errorf("%w\n%s", err, out)
 	}
 	for i, code := range result.Codes {
-		allowOne := i == 0 && (args.Source.Tool == "ping_host" || args.Source.Tool == "search_file") ||
-			i > 0 && args.Filters[i-1].Type == "grep"
-		if code != 0 && !(code == 1 && allowOne) {
+		if !pipelineStageSucceeded(args.Source.Tool, args.Filters, i, code) {
 			return "", fmt.Errorf("tools: pipeline stage %d failed with exit code %d\n%s", i, code, out)
 		}
 	}
 	return out, nil
+}
+
+func pipelineStageSucceeded(source string, filters []pipelineFilter, index, code int) bool {
+	allowOne := index == 0 && (source == "ping_host" || source == "search_file") || index > 0 && filters[index-1].Type == "grep"
+	return code == 0 || code == 1 && allowOne
 }
 
 func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
@@ -161,6 +170,14 @@ func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (re
 		cmd, err = digCommand(args)
 	case "nslookup_dns":
 		cmd, err = nslookupCommand(args)
+	case "curl_http":
+		if args.Download {
+			return stage, errors.New("tools: pipeline source cannot use download; use stdout=file instead")
+		}
+		cmd, _, err = curlCommand(args)
+		if err == nil {
+			err = t.checkCurlVersion(ctx, args.HostID)
+		}
 	default:
 		return stage, errors.New("tools: unsupported pipeline source")
 	}
@@ -228,6 +245,24 @@ func pipelineOutput(host, source string, filters []pipelineFilter, result remote
 		}
 		fmt.Fprintf(&out, "stage[%d]=%s exit_code=%d\n", i, name, code)
 	}
+	if result.HTTPMetadata != "" {
+		fmt.Fprintf(&out, "HTTP metadata (status, server IP, seconds, effective URL):\n%s", result.HTTPMetadata)
+	}
+	if result.HTTPHeaders != "" {
+		fmt.Fprintf(&out, "HTTP headers:\n%s", result.HTTPHeaders)
+	}
+	if len(result.HTTPMetadata) >= 4096 {
+		out.WriteString("\n[HTTP metadata preview limited to 4096 bytes]\n")
+	}
+	if len(result.HTTPHeaders) >= 8192 {
+		out.WriteString("\n[HTTP headers preview limited to 8192 bytes]\n")
+	}
+	partial := !result.Complete || result.Limited
+	for i, code := range result.Codes {
+		if !pipelineStageSucceeded(source, filters, i, code) {
+			partial = true
+		}
+	}
 	for _, stream := range []struct {
 		name, text, path string
 		size             int64
@@ -237,7 +272,11 @@ func pipelineOutput(host, source string, filters []pipelineFilter, result remote
 		{"stderr", result.Stderr, result.StderrPath, result.StderrBytes, result.StderrTruncated},
 	} {
 		if stream.path != "" {
-			fmt.Fprintf(&out, "%s_file=%s bytes=%d (raw output; completion=%t)\n", stream.name, stream.path, stream.size, result.Complete)
+			size := strconv.FormatInt(stream.size, 10)
+			if !result.Complete {
+				size = "unknown"
+			}
+			fmt.Fprintf(&out, "%s_file=%s bytes=%s (raw output; possibly_partial=%t)\n", stream.name, stream.path, size, partial)
 		}
 		if stream.text != "" {
 			fmt.Fprintf(&out, "%s:\n%s\n", stream.name, stream.text)
@@ -245,12 +284,6 @@ func pipelineOutput(host, source string, filters []pipelineFilter, result remote
 		if stream.truncated {
 			fmt.Fprintf(&out, "[%s preview truncated; total %d bytes]\n", stream.name, stream.size)
 		}
-	}
-	if result.HTTPMetadata != "" {
-		fmt.Fprintf(&out, "HTTP metadata (status, server IP, seconds, effective URL):\n%s", result.HTTPMetadata)
-	}
-	if result.HTTPHeaders != "" {
-		fmt.Fprintf(&out, "HTTP headers:\n%s", result.HTTPHeaders)
 	}
 	return out.String()
 }

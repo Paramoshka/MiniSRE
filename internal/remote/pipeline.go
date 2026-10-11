@@ -149,11 +149,29 @@ func pipelineScript(plan Pipeline) (string, error) {
 	if plan.Stderr == "discard" || plan.Stderr == "merge" {
 		stderrRedirect = "/dev/null"
 	}
+	cleanup := ""
+	if plan.Stdout != "file" {
+		cleanup += "rm -f -- \"$stdout_file\" || cleanup_code=125\n"
+	}
+	if plan.Stderr != "file" {
+		cleanup += "rm -f -- \"$stderr_file\" || cleanup_code=125\n"
+	}
+	cleanup += "rm -f -- \"$dir/codes\" \"$dir/headers\" \"$dir/http\" || cleanup_code=125\n"
+	if plan.Stdout != "file" && plan.Stderr != "file" {
+		cleanup += "rmdir -- \"$dir/data\" \"$dir\" || cleanup_code=125\n"
+	}
 	script := `set +o posix
 umask 077
 ulimit -f 10240 || exit 125
 dir=$(mktemp -d /tmp/mini-sre-XXXXXXXXXX) || exit 125
 mkdir "$dir/data" || exit 125
+stdout_file=` + stdoutTarget + `
+stderr_file="$dir/stderr.txt"
+cleanup() {
+cleanup_code=$?
+` + cleanup + `exit "$cleanup_code"
+}
+trap cleanup EXIT
 : > "$dir/headers"
 : > "$dir/http"
 printf 'MINISRE_PIPELINE_V1\n%s\n%s\n' "$dir" ` + shellQuote(filename) + `
@@ -162,19 +180,21 @@ worker() {
 set +m
 ` + "{ " + strings.Join(stages, " | ") + "; codes=(\"${PIPESTATUS[@]}\"); printf '%s\\n' \"${codes[*]}\" >\"$dir/codes\"; } >" + stdoutRedirect + " 2>" + stderrRedirect + `
 }
-worker &
-job=$!
 abort() {
-  kill -KILL -- "-$job" 2>/dev/null
-  wait "$job" 2>/dev/null
+  trap '' HUP INT TERM
+  running=$!
+  if test -n "$running"; then
+    kill -KILL -- "-$running" 2>/dev/null
+  fi
+  wait 2>/dev/null
   exit 124
 }
 trap abort HUP INT TERM
+worker &
+job=$!
 wait "$job"
 trap - HUP INT TERM
 test -f "$dir/codes" || exit 125
-stdout_file=` + stdoutTarget + `
-stderr_file="$dir/stderr.txt"
 test -f "$stdout_file" || : >"$stdout_file"
 test -f "$stderr_file" || : >"$stderr_file"
 out_size=$(stat -c %s -- "$stdout_file") || exit 125
@@ -191,18 +211,8 @@ head -c "$out_preview" -- "$stdout_file"
 head -c "$err_preview" -- "$stderr_file"
 head -c "$headers_size" -- "$dir/headers"
 head -c "$http_size" -- "$dir/http"
+exit 0
 `
-	// Keep only explicitly requested artifacts. No general deletion API is exposed.
-	if plan.Stdout != "file" {
-		script += "rm -f -- \"$stdout_file\"\n"
-	}
-	if plan.Stderr != "file" {
-		script += "rm -f -- \"$stderr_file\"\n"
-	}
-	script += "rm -f -- \"$dir/codes\" \"$dir/headers\" \"$dir/http\"\n"
-	if plan.Stdout != "file" && plan.Stderr != "file" {
-		script += "rmdir -- \"$dir/data\" \"$dir\"\n"
-	}
 	return script, nil
 }
 

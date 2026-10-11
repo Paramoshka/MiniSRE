@@ -32,6 +32,9 @@ func TestPipelineLogsFiltersAndArtifacts(t *testing.T) {
 			if err != nil || !strings.Contains(out, "second error") || strings.Contains(out, "ERROR late") || !strings.Contains(out, "stage[2]=tail exit_code=0") {
 				t.Fatalf("pipeline = %q, %v", out, err)
 			}
+			if host == "local" && (strings.Contains(out, "secret") || !strings.Contains(out, "[redacted]")) {
+				t.Fatalf("credential leaked: %q", out)
+			}
 			args["stdout"], args["stderr"] = "file", "file"
 			raw, err = json.Marshal(args)
 			if err != nil {

@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -351,6 +352,8 @@ func serveSSH(conn net.Conn, cfg *ssh.ServerConfig) {
 				}
 				req.Reply(true, nil)
 				cmd := exec.CommandContext(ctx, "sh", "-c", "exec env "+payload.Command)
+				// Model session teardown without killing the remote watchdog first.
+				cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGHUP) }
 				cmd.Stdout, cmd.Stderr = channel, channel.Stderr()
 				cmd.WaitDelay = time.Second
 				err := cmd.Run()

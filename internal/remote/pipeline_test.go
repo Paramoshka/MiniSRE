@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -102,29 +103,38 @@ func TestPipelineArtifactsAndLimits(t *testing.T) {
 }
 
 func TestPipelineCancellationStopsChildren(t *testing.T) {
-	pidFile := filepath.Join(t.TempDir(), "pid")
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	_, err := (&Runner{}).RunPipeline(ctx, "local", Pipeline{Stdout: "discard", Stderr: "discard", Stages: []Stage{
-		pipelineStage("sh", "-c", "echo $$ > \"$1\"; exec sleep 30", "test", pidFile),
-	}})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("cancel = %v", err)
-	}
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(time.Second)
-	for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if syscall.Kill(pid, 0) == nil {
-		t.Fatalf("child %d survived cancellation", pid)
+	for _, host := range []string{"local", "web"} {
+		t.Run(host, func(t *testing.T) {
+			runner := &Runner{}
+			if host == "web" {
+				runner = testSSH(t, false)
+			}
+			pidFile := filepath.Join(t.TempDir(), "pid")
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+			_, err := runner.RunPipeline(ctx, host, Pipeline{Stdout: "discard", Stderr: "discard", Stages: []Stage{
+				pipelineStage("sh", "-c", "echo $$ > \"$1\"; exec sleep 30", "test", pidFile),
+			}})
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("cancel = %v", err)
+			}
+			data, err := os.ReadFile(pidFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(time.Second)
+			for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			if syscall.Kill(pid, 0) == nil {
+				state, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+				t.Fatalf("child %d survived cancellation: %s", pid, state)
+			}
+		})
 	}
 }
 
