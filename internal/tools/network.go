@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"mini-sre/internal/remote"
 )
 
 var (
@@ -62,55 +64,71 @@ func validateRoutingTable(table string, allowAll bool) error {
 	return nil
 }
 
-func (t *Tools) IPRules(ctx context.Context, args toolArgs) (string, error) {
+func ipRulesCommand(args toolArgs) (remote.Command, error) {
 	family, err := networkFamily(args.Family, false)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	if err := validateRoutingTable(args.Table, false); err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	flags := []string{family, "rule", "show"}
 	if args.Table != "" {
 		flags = append(flags, "table", args.Table)
 	}
-	result, err := t.command(ctx, args.HostID, "ip", flags...)
+	return remote.Command{Program: "ip", Args: flags}, nil
+}
+
+func (t *Tools) IPRules(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := ipRulesCommand(args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}
 	return commandOutput(result), nil
 }
 
-func (t *Tools) IPRoutes(ctx context.Context, args toolArgs) (string, error) {
+func ipRoutesCommand(args toolArgs) (remote.Command, error) {
 	family, err := networkFamily(args.Family, false)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	table := args.Table
 	if table == "" {
 		table = "main"
 	}
 	if err := validateRoutingTable(table, true); err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	if err := validateInterface(args.Interface); err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	flags := []string{family, "route", "show", "table", table}
 	if args.Interface != "" {
 		flags = append(flags, "dev", args.Interface)
 	}
-	result, err := t.command(ctx, args.HostID, "ip", flags...)
+	return remote.Command{Program: "ip", Args: flags}, nil
+}
+
+func (t *Tools) IPRoutes(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := ipRoutesCommand(args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}
 	return commandOutput(result), nil
 }
 
-func (t *Tools) RouteTo(ctx context.Context, args toolArgs) (string, error) {
+func routeToCommand(args toolArgs) (remote.Command, error) {
 	destination, err := netip.ParseAddr(args.Destination)
 	if err != nil || destination.Zone() != "" {
-		return "", errors.New("tools: destination must be an IP address without a zone; use output_interface for link-local routes")
+		return remote.Command{}, errors.New("tools: destination must be an IP address without a zone; use output_interface for link-local routes")
 	}
 	family := "-6"
 	if destination.Is4() {
@@ -120,7 +138,7 @@ func (t *Tools) RouteTo(ctx context.Context, args toolArgs) (string, error) {
 	if args.Source != "" {
 		source, err := netip.ParseAddr(args.Source)
 		if err != nil || source.Zone() != "" || source.Is4() != destination.Is4() {
-			return "", errors.New("tools: source must be an IP address of the same family as destination, without a zone")
+			return remote.Command{}, errors.New("tools: source must be an IP address of the same family as destination, without a zone")
 		}
 		flags = append(flags, "from", source.String())
 	}
@@ -129,44 +147,52 @@ func (t *Tools) RouteTo(ctx context.Context, args toolArgs) (string, error) {
 	}
 	for _, item := range []struct{ name, value string }{{"iif", args.InputInterface}, {"oif", args.OutputInterface}} {
 		if err := validateInterface(item.value); err != nil {
-			return "", err
+			return remote.Command{}, err
 		}
 		if item.value != "" {
 			flags = append(flags, item.name, item.value)
 		}
 	}
-	result, err := t.command(ctx, args.HostID, "ip", flags...)
+	return remote.Command{Program: "ip", Args: flags}, nil
+}
+
+func (t *Tools) RouteTo(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := routeToCommand(args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}
 	return commandOutput(result), nil
 }
 
-func (t *Tools) PingHost(ctx context.Context, args toolArgs) (string, error) {
+func pingCommand(args toolArgs) (remote.Command, error) {
 	address, addressErr := netip.ParseAddr(args.Destination)
 	if addressErr != nil {
 		if len(args.Destination) > 253 || !pingHostname.MatchString(args.Destination) {
-			return "", errors.New("tools: destination must be one IP address or DNS hostname")
+			return remote.Command{}, errors.New("tools: destination must be one IP address or DNS hostname")
 		}
 	} else if address.Zone() != "" {
-		return "", errors.New("tools: use interface instead of a zone in the ping destination")
+		return remote.Command{}, errors.New("tools: use interface instead of a zone in the ping destination")
 	}
 	family, err := networkFamily(args.Family, true)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	if addressErr == nil && ((family == "-4" && !address.Is4()) || (family == "-6" && address.Is4())) {
-		return "", errors.New("tools: destination does not match the selected address family")
+		return remote.Command{}, errors.New("tools: destination does not match the selected address family")
 	}
 	if err := validateInterface(args.Interface); err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	count := 3
 	if args.Count != nil {
 		count = *args.Count
 	}
 	if count < 1 || count > 5 {
-		return "", errors.New("tools: count must be 1..5")
+		return remote.Command{}, errors.New("tools: count must be 1..5")
 	}
 	flags := []string{"-n", "-c", strconv.Itoa(count), "-W", "2", "-w", "8"}
 	if family != "" {
@@ -176,7 +202,15 @@ func (t *Tools) PingHost(ctx context.Context, args toolArgs) (string, error) {
 		flags = append(flags, "-I", args.Interface)
 	}
 	flags = append(flags, "--", args.Destination)
-	result, err := t.command(ctx, args.HostID, "ping", flags...)
+	return remote.Command{Program: "ping", Args: flags}, nil
+}
+
+func (t *Tools) PingHost(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := pingCommand(args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		if result.ExitCode == 1 {
 			return "ICMP probe did not receive all requested replies (exit code 1).\n" + commandOutput(result), nil
@@ -186,10 +220,10 @@ func (t *Tools) PingHost(ctx context.Context, args toolArgs) (string, error) {
 	return commandOutput(result), nil
 }
 
-func (t *Tools) NetworkSockets(ctx context.Context, args toolArgs) (string, error) {
+func socketsCommand(args toolArgs) (remote.Command, error) {
 	family, err := networkFamily(args.Family, true)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	flags := []string{"-n", "-p"}
 	switch args.Protocol {
@@ -200,7 +234,7 @@ func (t *Tools) NetworkSockets(ctx context.Context, args toolArgs) (string, erro
 	case "udp":
 		flags = append(flags, "-u")
 	default:
-		return "", errors.New("tools: protocol must be tcp, udp or both")
+		return remote.Command{}, errors.New("tools: protocol must be tcp, udp or both")
 	}
 	if family != "" {
 		flags = append(flags, family)
@@ -212,32 +246,40 @@ func (t *Tools) NetworkSockets(ctx context.Context, args toolArgs) (string, erro
 		flags = append(flags, "-a")
 	case "established", "syn-sent", "syn-recv", "time-wait", "close-wait":
 		if args.Protocol != "tcp" {
-			return "", errors.New("tools: TCP connection states require protocol=tcp")
+			return remote.Command{}, errors.New("tools: TCP connection states require protocol=tcp")
 		}
 		flags = append(flags, "-a", "state", args.State)
 	default:
-		return "", errors.New("tools: invalid socket state")
+		return remote.Command{}, errors.New("tools: invalid socket state")
 	}
 	if args.Port != nil {
 		if *args.Port < 1 || *args.Port > 65535 {
-			return "", errors.New("tools: port must be 1..65535")
+			return remote.Command{}, errors.New("tools: port must be 1..65535")
 		}
 		flags = append(flags, fmt.Sprintf("( sport = :%d or dport = :%d )", *args.Port, *args.Port))
 	}
-	result, err := t.command(ctx, args.HostID, "ss", flags...)
+	return remote.Command{Program: "ss", Args: flags}, nil
+}
+
+func (t *Tools) NetworkSockets(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := socketsCommand(args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}
 	return commandOutput(result), nil
 }
 
-func (t *Tools) NetworkInterfaces(ctx context.Context, args toolArgs) (string, error) {
+func interfacesCommands(args toolArgs) ([]remote.Command, error) {
 	family, err := networkFamily(args.Family, true)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := validateInterface(args.Interface); err != nil {
-		return "", err
+		return nil, err
 	}
 	flags := []string{"address", "show"}
 	if family != "" {
@@ -246,34 +288,51 @@ func (t *Tools) NetworkInterfaces(ctx context.Context, args toolArgs) (string, e
 	if args.Interface != "" {
 		flags = append(flags, "dev", args.Interface)
 	}
-	addresses, err := t.command(ctx, args.HostID, "ip", flags...)
-	if err != nil {
-		return "", err
-	}
+	commands := []remote.Command{{Program: "ip", Args: flags}}
 	flags = []string{"-s", "link", "show"}
 	if args.Interface != "" {
 		flags = append(flags, "dev", args.Interface)
 	}
-	links, err := t.command(ctx, args.HostID, "ip", flags...)
+	return append(commands, remote.Command{Program: "ip", Args: flags}), nil
+}
+
+func (t *Tools) NetworkInterfaces(ctx context.Context, args toolArgs) (string, error) {
+	commands, err := interfacesCommands(args)
+	if err != nil {
+		return "", err
+	}
+	addresses, err := t.command(ctx, args.HostID, commands[0].Program, commands[0].Args...)
+	if err != nil {
+		return "", err
+	}
+	links, err := t.command(ctx, args.HostID, commands[1].Program, commands[1].Args...)
 	if err != nil {
 		return "", err
 	}
 	return "Addresses:\n" + commandOutput(addresses) + "\nLink statistics:\n" + commandOutput(links), nil
 }
 
-func (t *Tools) IPNeighbors(ctx context.Context, args toolArgs) (string, error) {
+func neighborsCommand(args toolArgs) (remote.Command, error) {
 	family, err := networkFamily(args.Family, false)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	if err := validateInterface(args.Interface); err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	flags := []string{family, "neigh", "show"}
 	if args.Interface != "" {
 		flags = append(flags, "dev", args.Interface)
 	}
-	result, err := t.command(ctx, args.HostID, "ip", flags...)
+	return remote.Command{Program: "ip", Args: flags}, nil
+}
+
+func (t *Tools) IPNeighbors(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := neighborsCommand(args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}

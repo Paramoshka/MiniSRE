@@ -51,24 +51,30 @@ func (s ServiceTarget) normalized(required bool) (ServiceTarget, error) {
 	return s, nil
 }
 
-func (t *Tools) ServiceStatus(ctx context.Context, hostID string, target ServiceTarget) (string, error) {
+func serviceStatusCommand(target ServiceTarget) (remote.Command, ServiceTarget, error) {
 	target, err := target.normalized(true)
 	if err != nil {
-		return "", err
+		return remote.Command{}, target, err
 	}
-	var result remote.Result
 	if target.Backend == "systemd" {
 		flags := []string{"show", "--no-pager", "--property=LoadState,ActiveState,SubState,Result,ExecMainStatus"}
 		if target.Scope == "user" {
 			flags = append(flags, "--user")
 		}
 		flags = append(flags, "--", target.Name)
-		result, err = t.command(ctx, hostID, "systemctl", flags...)
-		if err == nil && strings.Contains(result.Stdout, "LoadState=not-found") {
-			return "", fmt.Errorf("tools: service %q not found in %s scope", target.Name, target.Scope)
-		}
-	} else {
-		result, err = t.command(ctx, hostID, "docker", "inspect", "--type=container", "--format={{json .State}}", "--", target.Name)
+		return remote.Command{Program: "systemctl", Args: flags}, target, nil
+	}
+	return remote.Command{Program: "docker", Args: []string{"inspect", "--type=container", "--format={{json .State}}", "--", target.Name}}, target, nil
+}
+
+func (t *Tools) ServiceStatus(ctx context.Context, hostID string, target ServiceTarget) (string, error) {
+	cmd, target, err := serviceStatusCommand(target)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, hostID, cmd.Program, cmd.Args...)
+	if err == nil && target.Backend == "systemd" && strings.Contains(result.Stdout, "LoadState=not-found") {
+		return "", fmt.Errorf("tools: service %q not found in %s scope", target.Name, target.Scope)
 	}
 	if err != nil {
 		return "", err
@@ -76,10 +82,10 @@ func (t *Tools) ServiceStatus(ctx context.Context, hostID string, target Service
 	return commandOutput(result), nil
 }
 
-func (t *Tools) ServiceLogs(ctx context.Context, args toolArgs) (string, error) {
+func serviceLogsCommand(args toolArgs) (remote.Command, error) {
 	target, err := args.ServiceTarget.normalized(false)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	lines, minutes := 100, 60
 	if args.Lines != nil {
@@ -89,9 +95,8 @@ func (t *Tools) ServiceLogs(ctx context.Context, args toolArgs) (string, error) 
 		minutes = *args.SinceMinutes
 	}
 	if lines < 1 || lines > 500 || minutes < 1 {
-		return "", errors.New("tools: lines must be 1..500 and since_minutes must be positive")
+		return remote.Command{}, errors.New("tools: lines must be 1..500 and since_minutes must be positive")
 	}
-	var result remote.Result
 	if target.Backend == "systemd" {
 		flags := []string{"--no-pager", "--output=short-iso", "--lines=" + strconv.Itoa(lines), "--since=-" + strconv.Itoa(minutes) + "min"}
 		if target.Scope == "user" {
@@ -104,10 +109,17 @@ func (t *Tools) ServiceLogs(ctx context.Context, args toolArgs) (string, error) 
 				flags = append(flags, "--unit="+target.Name)
 			}
 		}
-		result, err = t.command(ctx, args.HostID, "journalctl", flags...)
-	} else {
-		result, err = t.command(ctx, args.HostID, "docker", "logs", "--timestamps", "--tail="+strconv.Itoa(lines), "--since="+strconv.Itoa(minutes)+"m", "--", target.Name)
+		return remote.Command{Program: "journalctl", Args: flags}, nil
 	}
+	return remote.Command{Program: "docker", Args: []string{"logs", "--timestamps", "--tail=" + strconv.Itoa(lines), "--since=" + strconv.Itoa(minutes) + "m", "--", target.Name}}, nil
+}
+
+func (t *Tools) ServiceLogs(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := serviceLogsCommand(args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}

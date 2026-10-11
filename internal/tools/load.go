@@ -5,12 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"mini-sre/internal/remote"
 )
 
 const loadAveragePath = "/proc/loadavg"
 
+func loadCommand() remote.Command {
+	return remote.Command{Program: "cat", Args: []string{loadAveragePath}}
+}
+
 func (t *Tools) LoadAverage(ctx context.Context, hostID string) (string, error) {
-	result, err := t.command(ctx, hostID, "cat", loadAveragePath)
+	cmd := loadCommand()
+	result, err := t.command(ctx, hostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}

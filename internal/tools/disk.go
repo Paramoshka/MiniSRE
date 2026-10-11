@@ -6,14 +6,21 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"mini-sre/internal/remote"
 )
 
-func (t *Tools) DiskUsage(ctx context.Context, hostID, path string) (string, error) {
+func diskCommand(path string) remote.Command {
 	if path == "" {
 		path = "/"
 	}
 
-	result, err := t.command(ctx, hostID, "df", "-B1", "--output=size,used,avail", "--", path)
+	return remote.Command{Program: "df", Args: []string{"-B1", "--output=size,used,avail", "--", path}}
+}
+
+func (t *Tools) DiskUsage(ctx context.Context, hostID, path string) (string, error) {
+	cmd := diskCommand(path)
+	result, err := t.command(ctx, hostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}
@@ -41,6 +48,9 @@ func (t *Tools) DiskUsage(ctx context.Context, hostID, path string) (string, err
 		usedPercent = float64(used) / float64(total) * 100
 	}
 
+	if path == "" {
+		path = "/"
+	}
 	return fmt.Sprintf("%s: total=%s used=%s available=%s use=%.1f%%",
 		path, humanBytes(total), humanBytes(used), humanBytes(available), usedPercent), nil
 }

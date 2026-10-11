@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"mini-sre/internal/remote"
 )
 
 var dnsLabel = regexp.MustCompile(`^[A-Za-z0-9_-]{1,63}$`)
@@ -58,10 +60,10 @@ func dnsArguments(args toolArgs) (string, bool, error) {
 	return recordType, reverse, nil
 }
 
-func (t *Tools) DigDNS(ctx context.Context, args toolArgs) (string, error) {
+func digCommand(args toolArgs) (remote.Command, error) {
 	recordType, reverse, err := dnsArguments(args)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	// Ignore .digrc so user configuration cannot enable tracing or extra queries.
 	flags := []string{"-r", "+timeout=2", "+tries=1", "+nosearch"}
@@ -76,17 +78,25 @@ func (t *Tools) DigDNS(ctx context.Context, args toolArgs) (string, error) {
 	} else {
 		flags = append(flags, "-q", args.Query, "-t", recordType)
 	}
-	result, err := t.command(ctx, args.HostID, "dig", flags...)
+	return remote.Command{Program: "dig", Args: flags}, nil
+}
+
+func (t *Tools) DigDNS(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := digCommand(args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}
 	return commandOutput(result), nil
 }
 
-func (t *Tools) NslookupDNS(ctx context.Context, args toolArgs) (string, error) {
+func nslookupCommand(args toolArgs) (remote.Command, error) {
 	recordType, _, err := dnsArguments(args)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	flags := []string{"-timeout=2", "-retry=1", "-nosearch", "-type=" + recordType}
 	if args.Port != nil {
@@ -96,7 +106,15 @@ func (t *Tools) NslookupDNS(ctx context.Context, args toolArgs) (string, error) 
 	if args.Server != "" {
 		flags = append(flags, args.Server)
 	}
-	result, err := t.command(ctx, args.HostID, "nslookup", flags...)
+	return remote.Command{Program: "nslookup", Args: flags}, nil
+}
+
+func (t *Tools) NslookupDNS(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := nslookupCommand(args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}

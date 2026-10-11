@@ -7,6 +7,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"mini-sre/internal/remote"
 )
 
 func validateFilePath(path string) error {
@@ -51,7 +53,7 @@ func (t *Tools) checkedFilePath(ctx context.Context, hostID, path string) (strin
 	return resolved, nil
 }
 
-func (t *Tools) ReadFile(ctx context.Context, args toolArgs) (string, error) {
+func (t *Tools) readFileCommand(ctx context.Context, args toolArgs) (remote.Command, error) {
 	lines, start := 100, 1
 	if args.Lines != nil {
 		lines = *args.Lines
@@ -60,17 +62,17 @@ func (t *Tools) ReadFile(ctx context.Context, args toolArgs) (string, error) {
 		start = *args.StartLine
 	}
 	if lines < 1 || lines > 500 || start < 1 {
-		return "", errors.New("tools: lines must be 1..500 and start_line must be positive")
+		return remote.Command{}, errors.New("tools: lines must be 1..500 and start_line must be positive")
 	}
 	if args.Tail && args.StartLine != nil {
-		return "", errors.New("tools: start_line cannot be used with tail=true")
+		return remote.Command{}, errors.New("tools: start_line cannot be used with tail=true")
 	}
 	if start > math.MaxInt-(lines-1) {
-		return "", errors.New("tools: requested line range is too large")
+		return remote.Command{}, errors.New("tools: requested line range is too large")
 	}
 	path, err := t.checkedFilePath(ctx, args.HostID, args.Path)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	program := "sed"
 	flags := []string{"--sandbox", "-n", fmt.Sprintf("%d,%dp;%dq", start, start+lines-1, start+lines-1), "--", path}
@@ -78,7 +80,15 @@ func (t *Tools) ReadFile(ctx context.Context, args toolArgs) (string, error) {
 		program = "tail"
 		flags = []string{"-n", strconv.Itoa(lines), "--", path}
 	}
-	result, err := t.command(ctx, args.HostID, program, flags...)
+	return remote.Command{Program: program, Args: flags}, nil
+}
+
+func (t *Tools) ReadFile(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := t.readFileCommand(ctx, args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		return "", err
 	}
@@ -88,20 +98,20 @@ func (t *Tools) ReadFile(ctx context.Context, args toolArgs) (string, error) {
 	return commandOutput(result), nil
 }
 
-func (t *Tools) SearchFile(ctx context.Context, args toolArgs) (string, error) {
+func (t *Tools) searchFileCommand(ctx context.Context, args toolArgs) (remote.Command, error) {
 	if args.Pattern == "" || strings.ContainsRune(args.Pattern, '\x00') {
-		return "", errors.New("tools: pattern must be nonempty and must not contain NUL bytes")
+		return remote.Command{}, errors.New("tools: pattern must be nonempty and must not contain NUL bytes")
 	}
 	limit := 100
 	if args.Limit != nil {
 		limit = *args.Limit
 	}
 	if limit < 1 || limit > 500 {
-		return "", errors.New("tools: limit must be 1..500")
+		return remote.Command{}, errors.New("tools: limit must be 1..500")
 	}
 	path, err := t.checkedFilePath(ctx, args.HostID, args.Path)
 	if err != nil {
-		return "", err
+		return remote.Command{}, err
 	}
 	mode := "-F"
 	if args.Regex {
@@ -112,7 +122,15 @@ func (t *Tools) SearchFile(ctx context.Context, args toolArgs) (string, error) {
 		flags = append(flags, "-i")
 	}
 	flags = append(flags, "-e", args.Pattern, "--", path)
-	result, err := t.command(ctx, args.HostID, "grep", flags...)
+	return remote.Command{Program: "grep", Args: flags}, nil
+}
+
+func (t *Tools) SearchFile(ctx context.Context, args toolArgs) (string, error) {
+	cmd, err := t.searchFileCommand(ctx, args)
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...)
 	if err != nil {
 		if result.ExitCode == 1 && result.Stdout == "" && result.Stderr == "" && !result.Truncated {
 			return "No matching lines.", nil

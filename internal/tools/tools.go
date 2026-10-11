@@ -24,7 +24,7 @@ type Tools struct {
 }
 
 func Specs() []Spec {
-	return []Spec{
+	specs := []Spec{
 		{
 			Name: "list_hosts", Description: "List available host IDs. local is the machine running the tool executor.",
 			Parameters: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
@@ -108,6 +108,7 @@ func Specs() []Spec {
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"query":{"type":"string","description":"One ASCII DNS name (including SRV underscores or a trailing dot), or IPv4/IPv6 address without a zone for reverse lookup."},"record_type":{"type":"string","enum":["A","AAAA","CNAME","MX","NS","TXT","SOA","SRV","PTR","CAA"],"description":"Default A for names; IP queries require PTR and default to it."},"server":{"type":"string","description":"Optional DNS server as an IPv4/IPv6 address without a zone; default system DNS servers."},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"DNS server port; default 53."}},"required":["query"],"additionalProperties":false}`),
 		},
 	}
+	return append(specs, pipelineSpec(specs))
 }
 
 func Registry(runner *remote.Runner) map[string]Func {
@@ -116,9 +117,13 @@ func Registry(runner *remote.Runner) map[string]Func {
 	for _, spec := range Specs() {
 		name := spec.Name
 		registry[name] = func(ctx context.Context, raw json.RawMessage) (string, error) {
-			args, err := decodeArgs(raw)
-			if err != nil {
-				return "", err
+			var args toolArgs
+			var err error
+			if name != "run_pipeline" {
+				args, err = decodeArgs(raw)
+				if err != nil {
+					return "", err
+				}
 			}
 			var out string
 			switch name {
@@ -156,6 +161,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.DigDNS(ctx, args)
 			case "nslookup_dns":
 				out, err = t.NslookupDNS(ctx, args)
+			case "run_pipeline":
+				out, err = t.Pipeline(ctx, raw)
 			default:
 				return "", errors.New("tools: no handler for tool")
 			}
@@ -202,22 +209,27 @@ type toolArgs struct {
 
 func decodeArgs(raw json.RawMessage) (toolArgs, error) {
 	var args toolArgs
+	err := decodeObject(raw, &args)
+	return args, err
+}
+
+func decodeObject(raw json.RawMessage, target any) error {
 	if len(raw) == 0 {
-		return args, nil
+		return nil
 	}
 	if !strings.HasPrefix(strings.TrimSpace(string(raw)), "{") {
-		return args, errors.New("tools: arguments must be a JSON object")
+		return errors.New("tools: arguments must be a JSON object")
 	}
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&args); err != nil {
-		return args, errors.New("tools: invalid arguments; check field names and types")
+	if err := dec.Decode(target); err != nil {
+		return errors.New("tools: invalid arguments; check field names and types")
 	}
 	var extra any
 	if dec.Decode(&extra) != io.EOF {
-		return args, errors.New("tools: expected one argument object")
+		return errors.New("tools: expected one argument object")
 	}
-	return args, nil
+	return nil
 }
 
 func (t *Tools) command(ctx context.Context, hostID, program string, args ...string) (remote.Result, error) {
