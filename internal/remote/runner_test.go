@@ -31,20 +31,23 @@ import (
 func TestLocalCommands(t *testing.T) {
 	r := &Runner{}
 	result, err := r.Run(context.Background(), "local", "printf", "%s", "a ' $HOME; echo nope")
-	if err != nil || result.Stdout != "a ' $HOME; echo nope" {
+	if err != nil || result.Stdout != "a ' $HOME; echo nope" || result.ExitCode != 0 {
 		t.Fatalf("literal arguments: %+v, %v", result, err)
 	}
 	result, err = r.Run(context.Background(), "local", "sh", "-c", "printf failure >&2; exit 3")
-	if err == nil || result.Stderr != "failure" {
+	if err == nil || result.Stderr != "failure" || result.ExitCode != 3 {
 		t.Fatalf("exit failure: %+v, %v", result, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if _, err := r.Run(ctx, "local", "sleep", "10"); !errors.Is(err, context.DeadlineExceeded) {
+	if result, err := r.Run(ctx, "local", "sleep", "10"); !errors.Is(err, context.DeadlineExceeded) || result.ExitCode != -1 {
 		t.Fatalf("cancel command: %v", err)
 	}
-	if _, err := r.Run(context.Background(), "missing", "true"); err == nil {
+	if result, err := r.Run(context.Background(), "missing", "true"); err == nil || result.ExitCode != -1 {
 		t.Fatal("unknown host accepted")
+	}
+	if result, err := r.Run(context.Background(), "local", "/nonexistent/mini-sre-command"); err == nil || result.ExitCode != -1 {
+		t.Fatalf("missing command: %+v, %v", result, err)
 	}
 }
 
@@ -68,7 +71,7 @@ func TestSSHCommands(t *testing.T) {
 				{"%s", ""},
 			} {
 				result, err := r.Run(context.Background(), "web", "printf", args...)
-				if err != nil || result.Stdout != args[1] {
+				if err != nil || result.Stdout != args[1] || result.ExitCode != 0 {
 					t.Fatalf("SSH literal arguments: %+v, %v", result, err)
 				}
 			}
@@ -87,12 +90,12 @@ func TestSSHCommands(t *testing.T) {
 				t.Fatalf("SSH process report: %+v, %v", processes, err)
 			}
 			result, err := r.Run(context.Background(), "web", "sh", "-c", "printf failure >&2; exit 7")
-			if err == nil || result.Stderr != "failure" {
+			if err == nil || result.Stderr != "failure" || result.ExitCode != 7 {
 				t.Fatalf("SSH exit failure: %+v, %v", result, err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
-			if _, err := r.Run(ctx, "web", "sleep", "10"); !errors.Is(err, context.DeadlineExceeded) {
+			if result, err := r.Run(ctx, "web", "sleep", "10"); !errors.Is(err, context.DeadlineExceeded) || result.ExitCode != -1 {
 				t.Fatalf("SSH cancel command: %v", err)
 			}
 			if err := os.WriteFile(r.Config.KnownHosts, nil, 0600); err != nil {

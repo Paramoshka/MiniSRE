@@ -34,6 +34,7 @@ type Result struct {
 	Stdout    string
 	Stderr    string
 	Truncated bool
+	ExitCode  int // -1 when no process exit status is available.
 }
 
 func (r *Runner) Hosts() []string {
@@ -68,6 +69,7 @@ func (r *Runner) Run(ctx context.Context, hostID, program string, args ...string
 	result := Result{
 		Stdout: stdout.String(), Stderr: stderr.String(),
 		Truncated: stdout.truncated || stderr.truncated,
+		ExitCode:  -1,
 	}
 	if ctx.Err() != nil {
 		return result, fmt.Errorf("command on %q: %w", hostID, ctx.Err())
@@ -77,8 +79,16 @@ func (r *Runner) Run(ctx context.Context, hostID, program string, args ...string
 		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
 			return result, fmt.Errorf("command on %q: %w", hostID, context.DeadlineExceeded)
 		}
+		var localExit *exec.ExitError
+		var remoteExit *ssh.ExitError
+		if errors.As(err, &localExit) {
+			result.ExitCode = localExit.ExitCode()
+		} else if errors.As(err, &remoteExit) {
+			result.ExitCode = remoteExit.ExitStatus()
+		}
 		return result, fmt.Errorf("command %q on %q: %s", program, hostID, r.Redact(err.Error()))
 	}
+	result.ExitCode = 0
 	return result, nil
 }
 
