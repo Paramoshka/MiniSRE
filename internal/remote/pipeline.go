@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"path"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed pipeline.sh
+var pipelineShell string
 
 const ArtifactLimit = 10 * 1024 * 1024
 
@@ -107,37 +111,11 @@ func pipelineScript(plan Pipeline) (string, error) {
 	}
 	var stages []string
 	for _, stage := range plan.Stages {
-		if len(stage.Commands) == 0 {
-			return "", errors.New("pipeline: empty stage")
+		script, err := stageScript(stage, plan.Stderr == "merge")
+		if err != nil {
+			return "", err
 		}
-		var commands []string
-		for _, cmd := range stage.Commands {
-			if cmd.Program == "" || strings.ContainsRune(cmd.Program, 0) {
-				return "", errors.New("pipeline: invalid program")
-			}
-			command := shellQuote(cmd.Program)
-			for _, arg := range cmd.Args {
-				if strings.ContainsRune(arg, 0) {
-					return "", errors.New("pipeline: NUL in argument")
-				}
-				command += " " + shellQuote(arg)
-			}
-			if cmd.HTTPMetadata {
-				command += ` --dump-header "$dir/headers" --write-out "%output{$dir/http}%{http_code}\n%{remote_ip}\n%{time_total}\n%{url_effective}\n"`
-			}
-			commands = append(commands, command+" || exit $?")
-		}
-		body := "( " + strings.Join(commands, "; ") + " )"
-		if stage.HeadLines > 0 {
-			body = "( " + body + " | { head -n " + strconv.Itoa(stage.HeadLines) + "; cat >/dev/null; }; codes=(\"${PIPESTATUS[@]}\"); exit \"${codes[0]}\" )"
-		}
-		if stage.Drain {
-			body = "( " + body + "; code=$?; cat >/dev/null; exit \"$code\" )"
-		}
-		if plan.Stderr == "merge" {
-			body += " 2>&1"
-		}
-		stages = append(stages, body)
+		stages = append(stages, script)
 	}
 	// Filename is shell-quoted separately, even when it contains quotes or dollars.
 	stdoutTarget := `"$dir/data/"` + shellQuote(filename)
@@ -160,60 +138,51 @@ func pipelineScript(plan Pipeline) (string, error) {
 	if plan.Stdout != "file" && plan.Stderr != "file" {
 		cleanup += "rmdir -- \"$dir/data\" \"$dir\" || cleanup_code=125\n"
 	}
-	script := `set +o posix
-umask 077
-ulimit -f 10240 || exit 125
-dir=$(mktemp -d /tmp/mini-sre-XXXXXXXXXX) || exit 125
-mkdir "$dir/data" || exit 125
-stdout_file=` + stdoutTarget + `
-stderr_file="$dir/stderr.txt"
-cleanup() {
-cleanup_code=$?
-` + cleanup + `exit "$cleanup_code"
-}
-trap cleanup EXIT
-: > "$dir/headers"
-: > "$dir/http"
-printf 'MINISRE_PIPELINE_V1\n%s\n%s\n' "$dir" ` + shellQuote(filename) + `
-set -m
-worker() {
-set +m
-` + "{ " + strings.Join(stages, " | ") + "; codes=(\"${PIPESTATUS[@]}\"); printf '%s\\n' \"${codes[*]}\" >\"$dir/codes\"; } >" + stdoutRedirect + " 2>" + stderrRedirect + `
-}
-abort() {
-  trap '' HUP INT TERM
-  running=$!
-  if test -n "$running"; then
-    kill -KILL -- "-$running" 2>/dev/null
-  fi
-  wait 2>/dev/null
-  exit 124
-}
-trap abort HUP INT TERM
-worker &
-job=$!
-wait "$job"
-trap - HUP INT TERM
-test -f "$dir/codes" || exit 125
-test -f "$stdout_file" || : >"$stdout_file"
-test -f "$stderr_file" || : >"$stderr_file"
-out_size=$(stat -c %s -- "$stdout_file") || exit 125
-err_size=$(stat -c %s -- "$stderr_file") || exit 125
-out_preview=0
-err_preview=0
-` + modePreviewScript("out", plan.Stdout, 32768) + modePreviewScript("err", plan.Stderr, 16384) + `
-headers_size=$(stat -c %s -- "$dir/headers") || exit 125
-http_size=$(stat -c %s -- "$dir/http") || exit 125
-(( headers_size > 8192 )) && headers_size=8192
-(( http_size > 4096 )) && http_size=4096
-printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$(cat "$dir/codes")" "$out_size" "$err_size" "$out_preview" "$err_preview" "$headers_size" "$http_size"
-head -c "$out_preview" -- "$stdout_file"
-head -c "$err_preview" -- "$stderr_file"
-head -c "$headers_size" -- "$dir/headers"
-head -c "$http_size" -- "$dir/http"
-exit 0
-`
+	pipeline := fmt.Sprintf(`{ %s; codes=("${PIPESTATUS[@]}"); printf '%%s\n' "${codes[*]}" >"$dir/codes"; } >%s 2>%s`,
+		strings.Join(stages, " | "), stdoutRedirect, stderrRedirect)
+	// NewReplacer does one pass: placeholder-like text in arguments stays literal.
+	script := strings.NewReplacer(
+		"{{STDOUT_TARGET}}", stdoutTarget,
+		"{{CLEANUP}}", cleanup,
+		"{{FILENAME}}", shellQuote(filename),
+		"{{PIPELINE}}", pipeline,
+		"{{PREVIEWS}}", modePreviewScript("out", plan.Stdout, 32768)+modePreviewScript("err", plan.Stderr, 16384),
+	).Replace(pipelineShell)
 	return script, nil
+}
+
+func stageScript(stage Stage, mergeStderr bool) (string, error) {
+	if len(stage.Commands) == 0 {
+		return "", errors.New("pipeline: empty stage")
+	}
+	var commands []string
+	for _, cmd := range stage.Commands {
+		if cmd.Program == "" || strings.ContainsRune(cmd.Program, 0) {
+			return "", errors.New("pipeline: invalid program")
+		}
+		command := shellQuote(cmd.Program)
+		for _, arg := range cmd.Args {
+			if strings.ContainsRune(arg, 0) {
+				return "", errors.New("pipeline: NUL in argument")
+			}
+			command += " " + shellQuote(arg)
+		}
+		if cmd.HTTPMetadata {
+			command += ` --dump-header "$dir/headers" --write-out "%output{$dir/http}%{http_code}\n%{remote_ip}\n%{time_total}\n%{url_effective}\n"`
+		}
+		commands = append(commands, command+" || exit $?")
+	}
+	body := "( " + strings.Join(commands, "; ") + " )"
+	if stage.HeadLines > 0 {
+		body = fmt.Sprintf(`( %s | { head -n %d; cat >/dev/null; }; codes=("${PIPESTATUS[@]}"); exit "${codes[0]}" )`, body, stage.HeadLines)
+	}
+	if stage.Drain {
+		body = fmt.Sprintf(`( %s; code=$?; cat >/dev/null; exit "$code" )`, body)
+	}
+	if mergeStderr {
+		body += " 2>&1"
+	}
+	return body, nil
 }
 
 func modePreviewScript(prefix, mode string, limit int) string {
@@ -225,7 +194,9 @@ func modePreviewScript(prefix, mode string, limit int) string {
 
 func parsePipelineOutput(raw string, plan Pipeline) (PipelineResult, error) {
 	var result PipelineResult
-	fields := strings.SplitN(raw, "\n", 11)
+	// Header: magic, directory, filename, stage codes, six byte counts; then payload.
+	const headerLines = 10
+	fields := strings.SplitN(raw, "\n", headerLines+1)
 	if len(fields) < 4 || fields[0] != "MINISRE_PIPELINE_V1" || !strings.HasPrefix(fields[1], "/tmp/mini-sre-") {
 		return result, errors.New("pipeline: malformed report")
 	}
@@ -235,7 +206,7 @@ func parsePipelineOutput(raw string, plan Pipeline) (PipelineResult, error) {
 	if plan.Stderr == "file" {
 		result.StderrPath = fields[1] + "/stderr.txt"
 	}
-	if len(fields) != 11 {
+	if len(fields) != headerLines+1 {
 		return result, errors.New("pipeline: incomplete report")
 	}
 	for _, code := range strings.Fields(fields[3]) {
@@ -259,22 +230,19 @@ func parsePipelineOutput(raw string, plan Pipeline) (PipelineResult, error) {
 		}
 		sizes[i] = n
 	}
-	if sizes[2]+sizes[3]+sizes[4]+sizes[5] != int64(len(fields[10])) {
+	stdoutBytes, stderrBytes := sizes[0], sizes[1]
+	stdoutPreview, stderrPreview := sizes[2], sizes[3]
+	headersPreview, metadataPreview := sizes[4], sizes[5]
+	data := fields[headerLines]
+	if stdoutPreview+stderrPreview+headersPreview+metadataPreview != int64(len(data)) {
 		return result, errors.New("pipeline: incomplete payload")
 	}
-	result.StdoutBytes, result.StderrBytes = sizes[0], sizes[1]
-	data := fields[10]
-	result.Stdout, data = data[:sizes[2]], data[sizes[2]:]
-	result.Stderr, data = data[:sizes[3]], data[sizes[3]:]
-	result.HTTPHeaders, result.HTTPMetadata = data[:sizes[4]], data[sizes[4]:]
-	result.StdoutTruncated = plan.Stdout == "inline" && sizes[0] > sizes[2]
-	result.StderrTruncated = plan.Stderr == "inline" && sizes[1] > sizes[3]
-	if plan.Stdout == "file" {
-		result.StdoutPath = fields[1] + "/data/" + fields[2]
-	}
-	if plan.Stderr == "file" {
-		result.StderrPath = fields[1] + "/stderr.txt"
-	}
+	result.StdoutBytes, result.StderrBytes = stdoutBytes, stderrBytes
+	result.Stdout, data = data[:stdoutPreview], data[stdoutPreview:]
+	result.Stderr, data = data[:stderrPreview], data[stderrPreview:]
+	result.HTTPHeaders, result.HTTPMetadata = data[:headersPreview], data[headersPreview:]
+	result.StdoutTruncated = plan.Stdout == "inline" && stdoutBytes > stdoutPreview
+	result.StderrTruncated = plan.Stderr == "inline" && stderrBytes > stderrPreview
 	result.Complete = true
 	return result, nil
 }

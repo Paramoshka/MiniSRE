@@ -71,14 +71,17 @@ func TestPipelineArtifactsAndLimits(t *testing.T) {
 			if host == "web" {
 				r = testSSH(t, false)
 			}
-			plan := Pipeline{Stdout: "file", Stderr: "file", Filename: "quote'$().txt", Stages: []Stage{pipelineStage("sh", "-c", "printf payload; printf diagnostic >&2; exit 3")}}
+			plan := Pipeline{Stdout: "file", Stderr: "file", Filename: "quote'$(){{FILENAME}}.txt", Stages: []Stage{pipelineStage("sh", "-c", "printf '%s' '{{PIPELINE}}'; printf diagnostic >&2; exit 3")}}
 			result, err := r.RunPipeline(context.Background(), host, plan)
 			if err != nil || result.Codes[0] != 3 {
 				t.Fatalf("file = %+v, %v", result, err)
 			}
+			if filepath.Base(result.StdoutPath) != plan.Filename {
+				t.Fatalf("filename changed: %q", result.StdoutPath)
+			}
 			dir := filepath.Dir(filepath.Dir(result.StdoutPath))
 			t.Cleanup(func() { os.RemoveAll(dir) })
-			for _, item := range []struct{ path, want string }{{result.StdoutPath, "payload"}, {result.StderrPath, "diagnostic"}} {
+			for _, item := range []struct{ path, want string }{{result.StdoutPath, "{{PIPELINE}}"}, {result.StderrPath, "diagnostic"}} {
 				data, err := os.ReadFile(item.path)
 				if err != nil || string(data) != item.want {
 					t.Fatalf("artifact = %q, %v", data, err)
