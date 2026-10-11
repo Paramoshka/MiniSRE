@@ -167,8 +167,8 @@ func TestFileToolsCheckResolvedPathAndType(t *testing.T) {
 }
 
 func TestFileToolsLiteralArgumentsAndTruncation(t *testing.T) {
-	content := "a ' $HOME; $(touch injected)\n"
-	path := fileFixture(t, "config ' $HOME; $(touch injected)\nnewline", content)
+	content := "a ' $HOME; $(printf injected)\n"
+	path := fileFixture(t, "config ' $HOME; $(printf injected)\nnewline", content)
 	tools := &Tools{Runner: &remote.Runner{}}
 	out, err := tools.ReadFile(context.Background(), toolArgs{Path: path})
 	if err != nil || out != content {
@@ -188,6 +188,21 @@ func TestFileToolsLiteralArgumentsAndTruncation(t *testing.T) {
 	out, err = tools.SearchFile(context.Background(), toolArgs{Path: path, Pattern: "x"})
 	if err != nil || !strings.Contains(out, "[output truncated at 64 KiB]") {
 		t.Fatalf("truncated search = %d bytes, %v", len(out), err)
+	}
+}
+
+func TestFileToolsDefaultLimits(t *testing.T) {
+	path := fileFixture(t, "config", strings.Repeat("setting=value\n", 120))
+	tools := &Tools{Runner: &remote.Runner{}}
+	for _, tail := range []bool{false, true} {
+		out, err := tools.ReadFile(context.Background(), toolArgs{Path: path, Tail: tail})
+		if err != nil || strings.Count(out, "setting=value") != 100 {
+			t.Fatalf("default read limit: %d lines, %v", strings.Count(out, "setting=value"), err)
+		}
+	}
+	out, err := tools.SearchFile(context.Background(), toolArgs{Path: path, Pattern: "setting"})
+	if err != nil || strings.Count(out, "setting=value") != 100 {
+		t.Fatalf("default search limit: %d matches, %v", strings.Count(out, "setting=value"), err)
 	}
 }
 

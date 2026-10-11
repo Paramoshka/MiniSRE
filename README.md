@@ -10,6 +10,7 @@ history, and function calling.
 - REPL and one-shot mode, the answer is printed as it is generated;
 - read-only tools for load average, disk space, systemd/Docker status and logs;
 - top processes by resident memory or lifetime-average CPU;
+- bounded file reading and search, with hidden paths blocked;
 - the same probes run locally or over SSH on hosts configured in YAML;
 - a Telegram bot for personal messages and forwarded text from allowed users;
 - persistent scheduled agent checks, incident notifications and periodic summaries;
@@ -28,6 +29,9 @@ noninteractive PATH on remote hosts. Commands run as the current local or SSH
 user; the agent does not invoke `sudo`.
 
 The process probe requires `ps` from procps-ng, locally or in the SSH user's PATH.
+
+File probes require GNU `sed` (with `--sandbox`), `grep`, `tail`, `readlink` and
+`stat`, locally or in the SSH user's noninteractive PATH.
 
 ## Usage
 
@@ -163,6 +167,8 @@ All probes except `list_hosts` accept `host_id`, defaulting to `local`.
 | `get_top_processes` | `sort_by`, default `memory`; `limit`, default `10` | descending ranking by RSS or lifetime-average CPU, with PID, user, CPU%, MEM%, RSS in KiB and process name |
 | `get_service_status` | required `service`; `backend`, default `systemd`; `scope`, default `system` | systemd unit state or Docker container `.State` |
 | `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes` | recent journal or container logs |
+| `read_file` | required `path`; `start_line=1`, `lines=100`, `tail=false` | read a line range or the last lines of one file |
+| `search_file` | required `path`, `pattern`; `limit=100`, `regex=false`, `ignore_case=false` | matching lines with line numbers from one file |
 
 `backend` is `systemd` or `docker`, selected per request. Systemd names may omit
 the `.service` suffix; Docker targets are container names or IDs, not Compose or
@@ -195,6 +201,31 @@ Logs default to the last 100 records from the last 60 minutes. `lines` must be
 included. There is no follow mode. Journal access depends on the selected user's
 permissions; a restricted journal can contain fewer records than the full
 system journal.
+
+File probes require an absolute path to one existing regular file. `read_file`
+accepts `lines=1..500` and a positive `start_line` (numbered from 1); `tail=true`
+reads the last lines and cannot be combined with an explicit `start_line`.
+`search_file` accepts a nonempty pattern and `limit=1..500` matching lines.
+Matching is literal and case sensitive by default; `regex=true` uses grep's
+extended regular expressions and `ignore_case=true` ignores case. No matches
+is a successful result; invalid regular expressions and command failures are
+errors. Neither tool follows growing files or searches directories recursively.
+
+Every component of the requested path and resolved symlink target is checked.
+Names starting with a dot are forbidden, including `.env`, `.ssh`, `.aws`,
+`.config`, `.` and `..`. A normal-looking symlink pointing into a hidden
+directory is also rejected. Directories, devices, FIFOs and sockets are rejected
+before reading. Symlinks to ordinary allowed files are supported.
+
+For example, ask "read lines 20 through 40 of /etc/nginx/nginx.conf on web-1",
+"show the last 50 lines of /var/log/nginx/error.log", or
+"find lines matching ^listen in /etc/nginx/nginx.conf using a regular expression".
+
+These checks prevent accidental reads of hidden paths; they are not a security
+boundary against concurrent filesystem changes, hard-link aliases, or secrets
+stored in ordinary config files. File contents are sent to the model and may be
+saved in Telegram conversation history. Only configured SSH passwords are
+automatically redacted. Limit access with local/SSH user permissions when needed.
 
 Each command has a 15-second timeout, including SSH connection and handshake.
 Captured stdout and stderr together are limited to 64 KiB, with an explicit

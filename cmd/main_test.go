@@ -122,3 +122,53 @@ func TestToolRunnerPinsConfigForRedaction(t *testing.T) {
 		t.Fatalf("next call did not use new hosts: %q, %v", out, err)
 	}
 }
+
+func TestAgentUsesFileTools(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.conf")
+	if err := os.WriteFile(path, []byte("listen 80\nsetting=file-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	readArgs, err := json.Marshal(map[string]any{"path": path, "lines": 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	searchArgs, err := json.Marshal(map[string]any{"path": path, "pattern": "setting"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Hosts: map[string]config.Host{"web": {Password: "file-secret"}}}
+	calls := 0
+	s := &session.Session{
+		Tools: toolSpecs(), RunTool: toolRunner(func() config.Config { return cfg }),
+		Turn: func(_ context.Context, req agent.Request) (*agent.Response, error) {
+			calls++
+			if calls == 1 {
+				names := map[string]bool{}
+				for _, spec := range req.Tools {
+					names[spec.Name] = true
+				}
+				if !names["read_file"] || !names["search_file"] {
+					t.Fatal("file tool definitions did not reach the model")
+				}
+				return &agent.Response{ToolCalls: []agent.ToolCall{
+					{ID: "read", Name: "read_file", Arguments: string(readArgs)},
+					{ID: "search", Name: "search_file", Arguments: string(searchArgs)},
+				}}, nil
+			}
+			results := map[string]string{}
+			for _, message := range req.Messages {
+				if message.Role == agent.RoleTool {
+					results[message.ToolCallID] = message.Content
+				}
+			}
+			if results["read"] != "listen 80\nsetting=[redacted]\n" || results["search"] != "2:setting=[redacted]\n" {
+				t.Fatalf("file results missing or unredacted: %+v", results)
+			}
+			return &agent.Response{Content: "Checked"}, nil
+		},
+	}
+	response, err := s.Ask(context.Background(), "Read the config and find setting")
+	if err != nil || response.Content != "Checked" || calls != 2 {
+		t.Fatalf("file tool session: response=%+v, error=%v, calls=%d", response, err, calls)
+	}
+}
