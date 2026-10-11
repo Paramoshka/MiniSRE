@@ -12,6 +12,7 @@ history, and function calling.
 - top processes by resident memory or lifetime-average CPU;
 - bounded file reading and search, with hidden paths blocked;
 - network interfaces, policy rules, routing tables/lookups, neighbors, sockets and bounded ICMP probes;
+- bounded DNS queries with dig and nslookup, including reverse IP lookups;
 - the same probes run locally or over SSH on hosts configured in YAML;
 - a Telegram bot for personal messages and forwarded text from allowed users;
 - persistent scheduled agent checks, incident notifications and periodic summaries;
@@ -38,6 +39,9 @@ Network probes require `ip` and `ss` from iproute2, and `ping` from iputils.
 They must also be available in the SSH user's noninteractive PATH. ICMP socket
 permissions depend on the host's ping configuration; failures are reported
 without attempting to elevate privileges.
+
+DNS probes require BIND `dig` and `nslookup`, locally or in the SSH user's
+noninteractive PATH.
 
 ## Usage
 
@@ -182,6 +186,8 @@ All probes except `list_hosts` accept `host_id`, defaulting to `local`.
 | `get_network_sockets` | `protocol=both`, `state=listening`, `family=all`, optional `port` | TCP/UDP sockets with numeric endpoints and visible process details |
 | `get_network_interfaces` | `family=all`, optional `interface` | IP addresses, link state, MTU and RX/TX counters |
 | `get_ip_neighbors` | `family=ipv4`, optional `interface` | ARP or NDP neighbor cache entries and states |
+| `dig_dns` | required `query`; optional `record_type`, `server`, `port` | bounded DNS query with full dig output and DNS status |
+| `nslookup_dns` | required `query`; optional `record_type`, `server`, `port` | bounded noninteractive DNS query with nslookup |
 
 `backend` is `systemd` or `docker`, selected per request. Systemd names may omit
 the `.service` suffix; Docker targets are container names or IDs, not Compose or
@@ -279,6 +285,24 @@ Example requests: "show routes from table 100 and the rules selecting it on
 web-1", "check the route to 192.0.2.5 from 192.0.2.1 with fwmark 42",
 "ping 192.0.2.5 three times", "show TCP close-wait sockets on port 443", and
 "check eth0 addresses, errors and neighbors".
+
+`dig_dns` and `nslookup_dns` accept one ASCII DNS name (including SRV underscores
+and a trailing dot) or an IP address without a zone. Names default to `record_type=A`;
+IP addresses perform reverse lookups and require `PTR` (the default for IPs).
+Allowed types are `A`, `AAAA`, `CNAME`, `MX`, `NS`, `TXT`, `SOA`, `SRV`, `PTR` and
+`CAA`. Optional `server` must be a literal IPv4/IPv6 address; otherwise the host's
+system DNS servers are used. `port` defaults to 53 and accepts 1..65535.
+
+Both tools send DNS requests without changing host configuration. They disable
+search suffixes and use a two-second query timeout; dig uses one try and ignores
+`.digrc`, while nslookup uses `retry=1`. The executor's timeout still bounds the
+whole command. No interactive mode, zone transfer or arbitrary flags are exposed.
+Full output is retained: dig can return `NXDOMAIN` or `SERVFAIL` with exit code 0;
+nslookup's nonzero exits are reported as errors with their diagnostic output.
+A resolved name alone does not prove application health.
+
+Example requests: "dig AAAA example.com on web-1 using DNS server 192.0.2.53",
+"nslookup MX example.com", and "reverse DNS lookup of 192.0.2.5".
 
 Each command has a 15-second timeout, including SSH connection and handshake.
 Captured stdout and stderr together are limited to 64 KiB, with an explicit

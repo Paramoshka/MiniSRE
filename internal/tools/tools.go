@@ -97,6 +97,16 @@ func Specs() []Spec {
 			Description: "Show neighbor cache entries and their states using ip neigh show. IPv4 shows ARP neighbors; IPv6 shows NDP neighbors. Defaults: host_id=local, family=ipv4, all interfaces. Optional interface filter. An empty cache alone does not prove a connectivity problem. Read-only.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["ipv4","ipv6"]},"interface":{"type":"string","description":"Optional interface name."}},"additionalProperties":false}`),
 		},
+		{
+			Name:        "dig_dns",
+			Description: "Run a bounded dig DNS query from the selected host, retaining full output including DNS status. Requires one ASCII DNS name or IP; IP queries are reverse PTR lookups. Defaults: host_id=local, record_type=A for names or PTR for IPs, system DNS servers, port=53. Timeout 2 seconds per attempt, one try, no search suffixes or .digrc. Sends DNS requests without changing configuration; no zone transfers or arbitrary flags.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"query":{"type":"string","description":"One ASCII DNS name (including SRV underscores or a trailing dot), or IPv4/IPv6 address without a zone for reverse lookup."},"record_type":{"type":"string","enum":["A","AAAA","CNAME","MX","NS","TXT","SOA","SRV","PTR","CAA"],"description":"Default A for names; IP queries require PTR and default to it."},"server":{"type":"string","description":"Optional DNS server as an IPv4/IPv6 address without a zone; default system DNS servers."},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"DNS server port; default 53."}},"required":["query"],"additionalProperties":false}`),
+		},
+		{
+			Name:        "nslookup_dns",
+			Description: "Run a noninteractive bounded nslookup DNS query from the selected host. Requires one ASCII DNS name or IP; IP queries are reverse PTR lookups. Defaults: host_id=local, record_type=A for names or PTR for IPs, system DNS servers, port=53. Timeout 2 seconds, retry=1, no search suffixes. Nonzero exit codes retain diagnostic output, including negative DNS answers. Sends DNS requests without changing configuration; no zone transfers or arbitrary flags.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"query":{"type":"string","description":"One ASCII DNS name (including SRV underscores or a trailing dot), or IPv4/IPv6 address without a zone for reverse lookup."},"record_type":{"type":"string","enum":["A","AAAA","CNAME","MX","NS","TXT","SOA","SRV","PTR","CAA"],"description":"Default A for names; IP queries require PTR and default to it."},"server":{"type":"string","description":"Optional DNS server as an IPv4/IPv6 address without a zone; default system DNS servers."},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"DNS server port; default 53."}},"required":["query"],"additionalProperties":false}`),
+		},
 	}
 }
 
@@ -142,6 +152,10 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.NetworkInterfaces(ctx, args)
 			case "get_ip_neighbors":
 				out, err = t.IPNeighbors(ctx, args)
+			case "dig_dns":
+				out, err = t.DigDNS(ctx, args)
+			case "nslookup_dns":
+				out, err = t.NslookupDNS(ctx, args)
 			default:
 				return "", errors.New("tools: no handler for tool")
 			}

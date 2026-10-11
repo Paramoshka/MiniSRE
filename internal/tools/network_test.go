@@ -139,6 +139,8 @@ func TestNetworkRegistryErrorsAndTruncation(t *testing.T) {
 		{"get_network_sockets", "ss", `{}`},
 		{"get_network_interfaces", "ip", `{}`},
 		{"get_ip_neighbors", "ip", `{}`},
+		{"dig_dns", "dig", `{"query":"example.com"}`},
+		{"nslookup_dns", "nslookup", `{"query":"example.com"}`},
 	} {
 		for _, failure := range []bool{false, true} {
 			t.Run(tool.name+"/failure="+strconv.FormatBool(failure), func(t *testing.T) {
@@ -171,6 +173,8 @@ func TestNetworkSSH(t *testing.T) {
 		{"get_network_sockets", "ss", `{"protocol":"tcp","state":"established","port":443}`},
 		{"get_network_interfaces", "ip", `{"interface":"eth0"}`},
 		{"get_ip_neighbors", "ip", `{"family":"ipv6","interface":"eth0"}`},
+		{"dig_dns", "dig", `{"query":"_sip._tcp.example.com.","record_type":"SRV","server":"::1","port":5353}`},
+		{"nslookup_dns", "nslookup", `{"query":"192.0.2.1","server":"127.0.0.1"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			argsFile := fakeCommand(t, tc.program, "remote diagnostic ssh-test-password\n", "", "0")
