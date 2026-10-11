@@ -118,6 +118,19 @@ type toolArgs struct {
 	Pattern      string `json:"pattern"`
 	Regex        bool   `json:"regex"`
 	IgnoreCase   bool   `json:"ignore_case"`
+
+	Family          string  `json:"family"`
+	Interface       string  `json:"interface"`
+	Table           string  `json:"table"`
+	Destination     string  `json:"destination"`
+	Source          string  `json:"source"`
+	Mark            *uint32 `json:"mark"`
+	InputInterface  string  `json:"input_interface"`
+	OutputInterface string  `json:"output_interface"`
+	Count           *int    `json:"count"`
+	Protocol        string  `json:"protocol"`
+	State           string  `json:"state"`
+	Port            *int    `json:"port"`
 }
 
 func decodeArgs(raw json.RawMessage) (toolArgs, error) {
