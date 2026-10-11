@@ -11,6 +11,7 @@ history, and function calling.
 - read-only tools for load average, disk space, systemd/Docker status and logs;
 - top processes by resident memory or lifetime-average CPU;
 - bounded file reading and search, with hidden paths blocked;
+- network interfaces, policy rules, routing tables/lookups, neighbors, sockets and bounded ICMP probes;
 - the same probes run locally or over SSH on hosts configured in YAML;
 - a Telegram bot for personal messages and forwarded text from allowed users;
 - persistent scheduled agent checks, incident notifications and periodic summaries;
@@ -32,6 +33,11 @@ The process probe requires `ps` from procps-ng, locally or in the SSH user's PAT
 
 File probes require GNU `sed` (with `--sandbox`), `grep`, `tail`, `readlink` and
 `stat`, locally or in the SSH user's noninteractive PATH.
+
+Network probes require `ip` and `ss` from iproute2, and `ping` from iputils.
+They must also be available in the SSH user's noninteractive PATH. ICMP socket
+permissions depend on the host's ping configuration; failures are reported
+without attempting to elevate privileges.
 
 ## Usage
 
@@ -169,6 +175,13 @@ All probes except `list_hosts` accept `host_id`, defaulting to `local`.
 | `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes` | recent journal or container logs |
 | `read_file` | required `path`; `start_line=1`, `lines=100`, `tail=false` | read a line range or the last lines of one file |
 | `search_file` | required `path`, `pattern`; `limit=100`, `regex=false`, `ignore_case=false` | matching lines with line numbers from one file |
+| `get_ip_rules` | `family=ipv4`, optional `table` | policy routing rules, optionally filtered by referenced table |
+| `get_ip_routes` | `family=ipv4`, `table=main`, optional `interface` | routes from one table or `all` tables |
+| `get_route_to` | required IP `destination`; optional `source`, `mark`, `input_interface`, `output_interface` | the kernel's route lookup for the supplied packet attributes |
+| `ping_host` | required `destination`; `count=3`, `family=all`, optional `interface` | bounded ICMP echo probe to one IP address or DNS hostname |
+| `get_network_sockets` | `protocol=both`, `state=listening`, `family=all`, optional `port` | TCP/UDP sockets with numeric endpoints and visible process details |
+| `get_network_interfaces` | `family=all`, optional `interface` | IP addresses, link state, MTU and RX/TX counters |
+| `get_ip_neighbors` | `family=ipv4`, optional `interface` | ARP or NDP neighbor cache entries and states |
 
 `backend` is `systemd` or `docker`, selected per request. Systemd names may omit
 the `.service` suffix; Docker targets are container names or IDs, not Compose or
@@ -226,6 +239,46 @@ boundary against concurrent filesystem changes, hard-link aliases, or secrets
 stored in ordinary config files. File contents are sent to the model and may be
 saved in Telegram conversation history. Only configured SSH passwords are
 automatically redacted. Limit access with local/SSH user permissions when needed.
+
+Network probes run in the executing process's network namespace, locally or on
+the SSH host. They do not change routes, rules, interfaces or socket state.
+`ping_host` sends echo requests; the other network probes read diagnostic state.
+There is no namespace switching or arbitrary command/filter argument support.
+
+Rules, route tables and neighbors accept `family=ipv4` (default) or `ipv6`.
+Interfaces, sockets and ping additionally accept `all` (default): interfaces and
+sockets include both families, while ping chooses automatically. Table names
+include `main`, `local`, `default` and aliases configured on the target host;
+numeric IDs must be positive decimal 32-bit values without leading zeros.
+`get_ip_routes` also accepts `table=all`. `get_ip_rules` with `table` shows rules
+referencing that table, not its routes. The table named `default` is distinct
+from a default route in `main`; missing tables and failed lookups remain errors.
+
+`get_route_to` accepts literal IP addresses, not DNS names or CIDR prefixes, and
+chooses IPv4/IPv6 from the destination. The optional source must use the same
+family. `mark` is an unsigned 32-bit JSON integer (including zero), representing
+the packet's fwmark. Input and output interfaces model incoming traffic or
+constrain the output device; the kernel may reject invalid combinations.
+IPv6 addresses with a zone suffix are not accepted: use `output_interface` for
+route lookup or `interface` for ping to select a link-local scope.
+
+Ping sends `count=1..5` packets, defaults to 3, uses a two-second reply timeout
+and an eight-second deadline within the executor's 15-second command timeout.
+No flood or follow mode is exposed. Packet loss (ping exit code 1) is a diagnostic
+result with an explicit failure note; command errors remain errors. Missing
+ICMP replies can mean filtering, and successful ping does not prove application
+health. Route lookup also does not prove that packets reach the destination.
+
+Socket queries accept `protocol=tcp`, `udp` or `both`. States are `listening`
+(default), `all`, `established`, `syn-sent`, `syn-recv`, `time-wait` or `close-wait`;
+connection states require `protocol=tcp`. `port=1..65535` matches either endpoint.
+Process details depend on user permissions. Interface counters are cumulative,
+not rates, and an empty neighbor cache alone is not proof of a network failure.
+
+Example requests: "show routes from table 100 and the rules selecting it on
+web-1", "check the route to 192.0.2.5 from 192.0.2.1 with fwmark 42",
+"ping 192.0.2.5 three times", "show TCP close-wait sockets on port 443", and
+"check eth0 addresses, errors and neighbors".
 
 Each command has a 15-second timeout, including SSH connection and handshake.
 Captured stdout and stderr together are limited to 64 KiB, with an explicit

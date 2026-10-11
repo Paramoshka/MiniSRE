@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
+	"mini-sre/internal/config"
 	"mini-sre/internal/remote"
 )
 
@@ -125,5 +127,97 @@ func TestPingResults(t *testing.T) {
 	cancel()
 	if _, err := (&Tools{Runner: &remote.Runner{}}).PingHost(ctx, toolArgs{Destination: "127.0.0.1"}); err == nil {
 		t.Fatal("cancelled ping succeeded")
+	}
+}
+
+func TestNetworkRegistryErrorsAndTruncation(t *testing.T) {
+	for _, tool := range []struct{ name, program, raw string }{
+		{"get_ip_rules", "ip", `{}`},
+		{"get_ip_routes", "ip", `{}`},
+		{"get_route_to", "ip", `{"destination":"127.0.0.1"}`},
+		{"ping_host", "ping", `{"destination":"127.0.0.1"}`},
+		{"get_network_sockets", "ss", `{}`},
+		{"get_network_interfaces", "ip", `{}`},
+		{"get_ip_neighbors", "ip", `{}`},
+	} {
+		for _, failure := range []bool{false, true} {
+			t.Run(tool.name+"/failure="+strconv.FormatBool(failure), func(t *testing.T) {
+				stdout, stderr, exit := strings.Repeat("secret\n", 11000), "", "0"
+				if failure {
+					stdout, stderr, exit = "", "permission denied secret", "2"
+				}
+				fakeCommand(t, tool.program, stdout, stderr, exit)
+				runner := &remote.Runner{Config: config.Config{Hosts: map[string]config.Host{"web": {Password: "secret"}}}}
+				out, err := Registry(runner)[tool.name](context.Background(), json.RawMessage(tool.raw))
+				if failure {
+					if err == nil || strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "[redacted]") {
+						t.Fatalf("error ignored or unredacted: %v", err)
+					}
+				} else if err != nil || strings.Contains(out, "secret") || !strings.Contains(out, "[output truncated at 64 KiB]") {
+					t.Fatalf("invalid output: %d bytes, %v", len(out), err)
+				}
+			})
+		}
+	}
+}
+
+func TestNetworkSSH(t *testing.T) {
+	runner := fileSSHRunner(t)
+	for _, tc := range []struct{ name, program, raw string }{
+		{"get_ip_rules", "ip", `{"table":"default"}`},
+		{"get_ip_routes", "ip", `{"table":"100"}`},
+		{"get_route_to", "ip", `{"destination":"192.0.2.5","source":"192.0.2.1","mark":42,"input_interface":"eth0","output_interface":"eth1"}`},
+		{"ping_host", "ping", `{"destination":"example.com","count":1}`},
+		{"get_network_sockets", "ss", `{"protocol":"tcp","state":"established","port":443}`},
+		{"get_network_interfaces", "ip", `{"interface":"eth0"}`},
+		{"get_ip_neighbors", "ip", `{"family":"ipv6","interface":"eth0"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			argsFile := fakeCommand(t, tc.program, "remote diagnostic ssh-test-password\n", "", "0")
+			var args map[string]any
+			if err := json.Unmarshal([]byte(tc.raw), &args); err != nil {
+				t.Fatal(err)
+			}
+			args["host_id"] = "web"
+			raw, err := json.Marshal(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := Registry(runner)[tc.name](context.Background(), raw)
+			if err != nil || !strings.Contains(out, "remote diagnostic [redacted]") || strings.Contains(out, "ssh-test-password") {
+				t.Fatalf("SSH probe = %q, %v", out, err)
+			}
+			flags, err := os.ReadFile(argsFile)
+			if err != nil || len(flags) == 0 {
+				t.Fatalf("SSH command did not run: %v", err)
+			}
+		})
+	}
+	t.Run("ping packet loss", func(t *testing.T) {
+		fakeCommand(t, "ping", "100% packet loss\n", "", "1")
+		out, err := Registry(runner)["ping_host"](context.Background(), json.RawMessage(`{"host_id":"web","destination":"192.0.2.5"}`))
+		if err != nil || !strings.Contains(out, "exit code 1") || !strings.Contains(out, "100% packet loss") {
+			t.Fatalf("SSH packet loss = %q, %v", out, err)
+		}
+	})
+}
+
+func TestNetworkLocally(t *testing.T) {
+	registry := Registry(&remote.Runner{})
+	for _, tc := range []struct{ name, raw, want string }{
+		{"get_ip_rules", `{}`, "lookup"},
+		{"get_ip_routes", `{"table":"local"}`, "127.0.0.1"},
+		{"get_route_to", `{"destination":"127.0.0.1","source":"127.0.0.1","mark":0}`, "127.0.0.1"},
+		{"ping_host", `{"destination":"127.0.0.1","count":1}`, ", 0% packet loss"},
+		{"get_network_sockets", `{"protocol":"tcp","state":"all"}`, "State"},
+		{"get_network_interfaces", `{"interface":"lo"}`, "127.0.0.1"},
+		{"get_ip_neighbors", `{"interface":"lo"}`, "No neighbor entries."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := registry[tc.name](context.Background(), json.RawMessage(tc.raw))
+			if err != nil || !strings.Contains(out, tc.want) {
+				t.Fatalf("local probe = %q, %v; want %q", out, err, tc.want)
+			}
+		})
 	}
 }

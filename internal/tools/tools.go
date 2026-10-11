@@ -62,6 +62,41 @@ func Specs() []Spec {
 			Description: "Search one regular file and return matching lines with line numbers. Requires an absolute path; hidden components are forbidden in both the requested path and resolved symlink target. Defaults: host_id=local, literal matching, case sensitive, limit=100. Set regex=true for grep extended regular expressions. No recursive search.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"path":{"type":"string","description":"Absolute path to one regular file; hidden components, . and .. are forbidden."},"pattern":{"type":"string","minLength":1,"description":"Nonempty literal text, or an extended regular expression when regex=true."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Maximum number of matching lines; default 100."},"regex":{"type":"boolean","description":"Use extended regular expressions instead of literal matching; default false."},"ignore_case":{"type":"boolean","description":"Ignore case; default false."}},"required":["path","pattern"],"additionalProperties":false}`),
 		},
+		{
+			Name:        "get_ip_rules",
+			Description: "Show policy routing rules with ip rule show. Optional table filters rules referring to that routing table; it does not show routes inside the table. Defaults: host_id=local, family=ipv4. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["ipv4","ipv6"]},"table":{"type":"string","description":"Optional routing table name or positive decimal 32-bit ID without leading zeros."}},"additionalProperties":false}`),
+		},
+		{
+			Name:        "get_ip_routes",
+			Description: "Show routes from main, default, local, a custom table, or all tables. The table named default is different from the default route in main. Defaults: host_id=local, family=ipv4, table=main. Optional interface filter. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["ipv4","ipv6"]},"table":{"type":"string","description":"Table name, positive decimal 32-bit ID without leading zeros, or all; default main."},"interface":{"type":"string","description":"Optional interface name."}},"additionalProperties":false}`),
+		},
+		{
+			Name:        "get_route_to",
+			Description: "Ask the kernel which route it would use for an IP destination. Optional source IP, packet mark (fwmark), input and output interfaces model policy routing. Address family follows destination; source must match it. This lookup sends no probe packets and does not prove reachability.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"destination":{"type":"string","description":"Required IPv4 or IPv6 address, without CIDR prefix or zone; no DNS hostname."},"source":{"type":"string","description":"Optional source IP of the same family."},"mark":{"type":"integer","minimum":0,"maximum":4294967295,"description":"Optional packet fwmark as an unsigned 32-bit decimal integer."},"input_interface":{"type":"string","description":"Optional incoming interface, for forwarded-packet lookup."},"output_interface":{"type":"string","description":"Optional outgoing interface constraint."}},"required":["destination"],"additionalProperties":false}`),
+		},
+		{
+			Name:        "ping_host",
+			Description: "Send a bounded ICMP echo probe to one IP address or DNS hostname from the selected host. Defaults: host_id=local, count=3, family=all (automatic); maximum 5 packets, 2-second reply timeout, 8-second deadline. Packet loss is a diagnostic result, not a command execution error. No flood mode. ICMP replies do not prove application health, and missing replies do not prove a host is down.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"destination":{"type":"string","description":"One IP address or ASCII DNS hostname; use interface for IPv6 link-local scope."},"family":{"type":"string","enum":["all","ipv4","ipv6"]},"interface":{"type":"string","description":"Optional outgoing interface name."},"count":{"type":"integer","minimum":1,"maximum":5,"description":"Number of echo requests; default 3."}},"required":["destination"],"additionalProperties":false}`),
+		},
+		{
+			Name:        "get_network_sockets",
+			Description: "Show TCP/UDP sockets with numeric endpoints and process details visible to the executing user. Defaults: host_id=local, protocol=both, state=listening, family=all. Filter by port on either endpoint. TCP connection states require protocol=tcp. Read-only; never closes sockets.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["all","ipv4","ipv6"]},"protocol":{"type":"string","enum":["both","tcp","udp"]},"state":{"type":"string","enum":["listening","all","established","syn-sent","syn-recv","time-wait","close-wait"]},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"Optional local or peer port."}},"additionalProperties":false}`),
+		},
+		{
+			Name:        "get_network_interfaces",
+			Description: "Show interface IP addresses, link state, MTU and RX/TX counters using ip address show and ip -s link show. Defaults: host_id=local, family=all, all interfaces. Optional interface filter. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["all","ipv4","ipv6"]},"interface":{"type":"string","description":"Optional interface name."}},"additionalProperties":false}`),
+		},
+		{
+			Name:        "get_ip_neighbors",
+			Description: "Show neighbor cache entries and their states using ip neigh show. IPv4 shows ARP neighbors; IPv6 shows NDP neighbors. Defaults: host_id=local, family=ipv4, all interfaces. Optional interface filter. An empty cache alone does not prove a connectivity problem. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["ipv4","ipv6"]},"interface":{"type":"string","description":"Optional interface name."}},"additionalProperties":false}`),
+		},
 	}
 }
 
@@ -93,6 +128,20 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.ReadFile(ctx, args)
 			case "search_file":
 				out, err = t.SearchFile(ctx, args)
+			case "get_ip_rules":
+				out, err = t.IPRules(ctx, args)
+			case "get_ip_routes":
+				out, err = t.IPRoutes(ctx, args)
+			case "get_route_to":
+				out, err = t.RouteTo(ctx, args)
+			case "ping_host":
+				out, err = t.PingHost(ctx, args)
+			case "get_network_sockets":
+				out, err = t.NetworkSockets(ctx, args)
+			case "get_network_interfaces":
+				out, err = t.NetworkInterfaces(ctx, args)
+			case "get_ip_neighbors":
+				out, err = t.IPNeighbors(ctx, args)
 			default:
 				return "", errors.New("tools: no handler for tool")
 			}
