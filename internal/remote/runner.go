@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -48,6 +50,10 @@ func (r *Runner) Hosts() []string {
 }
 
 func (r *Runner) Run(ctx context.Context, hostID, program string, args ...string) (Result, error) {
+	return r.run(ctx, hostID, false, program, args...)
+}
+
+func (r *Runner) run(ctx context.Context, hostID string, processGroup bool, program string, args ...string) (Result, error) {
 	if hostID == "" {
 		hostID = "local"
 	}
@@ -62,9 +68,13 @@ func (r *Runner) Run(ctx context.Context, hostID, program string, args ...string
 		cmd.Env = append(os.Environ(), "LC_ALL=C", "SYSTEMD_COLORS=0")
 		cmd.Stdout, cmd.Stderr = stdout, stderr
 		cmd.WaitDelay = time.Second
+		if processGroup {
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
+		}
 		err = cmd.Run()
 	} else {
-		err = r.runSSH(ctx, hostID, program, args, stdout, stderr)
+		err = r.runSSH(ctx, hostID, processGroup, program, args, stdout, stderr)
 	}
 	result := Result{
 		Stdout: stdout.String(), Stderr: stderr.String(),
@@ -92,7 +102,7 @@ func (r *Runner) Run(ctx context.Context, hostID, program string, args ...string
 	return result, nil
 }
 
-func (r *Runner) runSSH(ctx context.Context, id, program string, args []string, stdout, stderr *limitedBuffer) error {
+func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, program string, args []string, stdout, stderr *limitedBuffer) error {
 	host, ok := r.Config.Hosts[id]
 	if !ok {
 		return errors.New("unknown host")
@@ -128,7 +138,15 @@ func (r *Runner) runSSH(ctx context.Context, id, program string, args []string, 
 		return errors.New("cannot connect to SSH server")
 	}
 	defer conn.Close()
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	var signalSession atomic.Pointer[ssh.Session]
+	stop := context.AfterFunc(ctx, func() {
+		if session := signalSession.Load(); session != nil {
+			// Best effort; the independent remote watchdog handles lost connections.
+			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+			session.Signal(ssh.SIGTERM)
+		}
+		conn.Close()
+	})
 	defer stop()
 	deadline, _ := ctx.Deadline()
 	if err := conn.SetDeadline(deadline); err != nil {
@@ -157,6 +175,9 @@ func (r *Runner) runSSH(ctx context.Context, id, program string, args []string, 
 		return errors.New("cannot open SSH session")
 	}
 	defer session.Close()
+	if processGroup {
+		signalSession.Store(session)
+	}
 	session.Stdout, session.Stderr = stdout, stderr
 	command := "LC_ALL=C SYSTEMD_COLORS=0 " + shellQuote(program)
 	for _, arg := range args {
