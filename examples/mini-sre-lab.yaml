@@ -1,0 +1,8 @@
+# Install as /etc/mini-sre/lab.yaml, root:root, mode 0600.
+owner_id: mini-sre
+# Example only: reserve an unused /24 after checking host/VPN/Docker routes.
+mgmt_subnet: 172.31.250.0/24
+# Replace both digest placeholders with preloaded, approved diagnostic images.
+images:
+  alpine: registry.example/mini-sre-alpine@sha256:REPLACE_WITH_64_HEX_DIGEST
+  frr: registry.example/mini-sre-frr@sha256:REPLACE_WITH_64_HEX_DIGEST

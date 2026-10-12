@@ -1,0 +1,12 @@
+[Unit]
+Description=Remove expired mini-sre containerlab labs
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/local/sbin/mini-sre-lab gc
+TimeoutStartSec=130
+KillMode=control-group

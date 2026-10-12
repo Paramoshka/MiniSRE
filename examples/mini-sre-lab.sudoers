@@ -1,0 +1,2 @@
+# Replace mini-sre with the configured SSH account; validate with visudo -cf.
+mini-sre ALL=(root) NOPASSWD: /usr/local/sbin/mini-sre-lab request

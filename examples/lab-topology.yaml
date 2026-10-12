@@ -1,0 +1,32 @@
+name: routing-demo
+nodes:
+  client:
+    profile: alpine
+    interfaces:
+      eth1: [10.20.0.2/24]
+    routes:
+      - destination: 10.30.0.0/24
+        via: 10.20.0.1
+        interface: eth1
+  router:
+    profile: frr
+    forwarding: true
+    interfaces:
+      eth1: [10.20.0.1/24]
+      eth2: [10.30.0.1/24]
+    frr_config: |
+      frr defaults traditional
+      service integrated-vtysh-config
+      hostname router
+      log stdout
+  server:
+    profile: alpine
+    interfaces:
+      eth1: [10.30.0.2/24]
+    routes:
+      - destination: 10.20.0.0/24
+        via: 10.30.0.1
+        interface: eth1
+links:
+  - [client:eth1, router:eth1]
+  - [router:eth2, server:eth1]
