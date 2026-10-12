@@ -15,3 +15,6 @@ hosts:
 
 telegram:
   allowed_user_ids: [123456789]
+
+# Enable only after installing mini-sre-lab on the selected hosts.
+lab_hosts: []

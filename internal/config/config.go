@@ -22,6 +22,7 @@ type Host struct {
 type Config struct {
 	KnownHosts string          `yaml:"known_hosts"`
 	Hosts      map[string]Host `yaml:"hosts"`
+	LabHosts   []string        `yaml:"lab_hosts"`
 	Telegram   struct {
 		AllowedUserIDs []int64 `yaml:"allowed_user_ids"`
 	} `yaml:"telegram"`
@@ -85,6 +86,13 @@ func Load(path string) (Config, error) {
 		if id <= 0 {
 			return Config{}, errors.New("config: Telegram user IDs must be positive")
 		}
+	}
+	seenLabHosts := make(map[string]bool)
+	for _, id := range cfg.LabHosts {
+		if _, exists := cfg.Hosts[id]; (id != "local" && !exists) || seenLabHosts[id] {
+			return Config{}, errors.New("config: lab_hosts must contain distinct configured host IDs or local")
+		}
+		seenLabHosts[id] = true
 	}
 	return cfg, nil
 }

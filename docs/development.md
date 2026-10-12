@@ -24,6 +24,11 @@ Layout:
 - `internal/config`, `internal/remote` - YAML hosts and local/SSH command execution;
 - `internal/telegram` - Bot API polling, authorization and chat sessions;
 - `cmd/main.go` - flags and wiring.
+- `internal/lab`, `cmd/mini-sre-lab` - restricted host-side containerlab execution and durable TTL registry.
+
+Lab unit tests simulate Docker/containerlab lifecycle and failures; they do not
+create live lab resources. Follow [the test-host checklist](containerlab.md#verification-on-a-test-host)
+to validate the installed containerlab version and image digests before enabling a shared host.
 
 ## Notes
 

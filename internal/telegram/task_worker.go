@@ -42,10 +42,21 @@ func (b *Bot) checkTask(ctx context.Context, task scheduledTask) taskOutcome {
 	}
 	s := b.newSession()
 	s.SystemPrompt = session.DefaultSystemPrompt + scheduledPrompt
+	allowedTools := make([]agent.Tool, 0, len(s.Tools))
+	for _, tool := range s.Tools {
+		if tool.Name != "lab_deploy" && tool.Name != "lab_destroy" {
+			allowedTools = append(allowedTools, tool)
+		}
+	}
+	s.Tools = allowedTools
 	run := s.RunTool
 	probeSucceeded, probeFailed := false, false
 	if run != nil {
 		s.RunTool = func(ctx context.Context, call agent.ToolCall) (string, error) {
+			if call.Name == "lab_deploy" || call.Name == "lab_destroy" {
+				probeFailed = true
+				return "", errors.New("tasks: lab deployment and deletion are forbidden in scheduled checks")
+			}
 			if !slices.Contains(b.users(), task.OwnerID) {
 				probeFailed = true
 				return "", errors.New("tasks: owner access revoked")

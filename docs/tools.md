@@ -44,7 +44,9 @@ privilege escalation is used.
 
 ## Tool reference
 
-All probes except `list_hosts` accept `host_id`, defaulting to `local`.
+Diagnostic probes except `list_hosts` accept `host_id`, defaulting to `local`.
+The optional [containerlab tools](containerlab.md) require an explicit enabled
+`host_id` and use a separately installed host helper.
 
 | Tool | Other arguments | Behavior |
 |---|---|---|
@@ -67,6 +69,10 @@ All probes except `list_hosts` accept `host_id`, defaulting to `local`.
 | `nslookup_dns` | required `query`; optional `record_type`, `server`, `port` | bounded noninteractive DNS query with nslookup |
 | `curl_http` | required `url`; `method=GET`, optional `headers`, `follow_redirects=false`, `insecure=false`, `download=false` | HTTP/HTTPS response status, headers, server IP, timings and body preview, or saved raw body |
 | `run_pipeline` | required `source`; optional `filters`, `stdout=inline`, `stderr=inline` | source output through validated filters; return, save or discard streams, retaining all stage statuses |
+| `lab_deploy` | required `host_id`, `topo_yaml`; `ttl_minutes=60` | create/configure one restricted FRR/Alpine lab with host-side TTL |
+| `lab_inspect` | required `host_id`; optional `name` | inspect existing labs, nodes, management IPs and registered TTL |
+| `lab_run` | required `host_id`, `name`, `node`, `checks` | bounded node diagnostics; explicit per-check statuses |
+| `lab_destroy` | required `host_id`; `name` or `all_mine=true` | delete only registered helper-owned labs |
 
 ## Services and logs
 
@@ -225,8 +231,8 @@ marked `possibly_partial=true` in the error report.
 
 `run_pipeline` chooses a source by its existing tool name and arguments. Sources
 are all command-based diagnostic tools, including curl; `list_hosts` and nested
-pipelines are excluded. Source arguments keep their original validation and
-defaults. `host_id` belongs to the pipeline, and applies to every stage. Source
+pipelines and all `lab_*` tools are excluded. Source arguments keep their original
+validation and defaults. `host_id` belongs to the pipeline, and applies to every stage. Source
 streams contain raw command output rather than standalone human-readable
 formatting; top processes still respects its requested row limit. Interfaces
 emit address output followed by link counters.
@@ -286,7 +292,10 @@ Interrupted jobs can leave private temporary files.
 
 ## Execution limits and data access
 
-Each command has a 15-second timeout, including SSH connection and handshake.
+Each diagnostic command has a 15-second timeout, including SSH connection and handshake.
+Lab requests instead have a 120-second host-side limit and a 125-second caller
+limit including SSH; each node diagnostic has its own 15-second limit. Lab
+privileges, resource constraints and cleanup are described in [Containerlab](containerlab.md).
 Captured stdout and stderr together are limited to 64 KiB, with an explicit
 truncation marker. Local arguments are passed directly to the process; SSH
 arguments are quoted for the remote shell. The model cannot supply a program or

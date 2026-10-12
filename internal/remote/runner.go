@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -54,10 +55,19 @@ func (r *Runner) Run(ctx context.Context, hostID, program string, args ...string
 }
 
 func (r *Runner) run(ctx context.Context, hostID string, processGroup bool, program string, args ...string) (Result, error) {
+	return r.runInput(ctx, hostID, processGroup, commandTimeout, nil, program, args...)
+}
+
+// RunLab invokes only the installed helper; it does not expose stdin or timeouts to the model.
+func (r *Runner) RunLab(ctx context.Context, hostID string, request []byte) (Result, error) {
+	return r.runInput(ctx, hostID, true, 125*time.Second, bytes.NewReader(request), "sudo", "-n", "--", "/usr/local/sbin/mini-sre-lab", "request")
+}
+
+func (r *Runner) runInput(ctx context.Context, hostID string, processGroup bool, timeout time.Duration, input io.Reader, program string, args ...string) (Result, error) {
 	if hostID == "" {
 		hostID = "local"
 	}
-	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	budget := &outputBudget{remaining: outputLimit}
 	stdout := &limitedBuffer{budget: budget}
@@ -67,6 +77,7 @@ func (r *Runner) run(ctx context.Context, hostID string, processGroup bool, prog
 		cmd := exec.CommandContext(ctx, program, args...)
 		cmd.Env = append(os.Environ(), "LC_ALL=C", "SYSTEMD_COLORS=0")
 		cmd.Stdout, cmd.Stderr = stdout, stderr
+		cmd.Stdin = input
 		cmd.WaitDelay = time.Second
 		if processGroup {
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -74,7 +85,7 @@ func (r *Runner) run(ctx context.Context, hostID string, processGroup bool, prog
 		}
 		err = cmd.Run()
 	} else {
-		err = r.runSSH(ctx, hostID, processGroup, program, args, stdout, stderr)
+		err = r.runSSH(ctx, hostID, processGroup, input, program, args, stdout, stderr)
 	}
 	result := Result{
 		Stdout: stdout.String(), Stderr: stderr.String(),
@@ -102,7 +113,7 @@ func (r *Runner) run(ctx context.Context, hostID string, processGroup bool, prog
 	return result, nil
 }
 
-func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, program string, args []string, stdout, stderr *limitedBuffer) error {
+func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, input io.Reader, program string, args []string, stdout, stderr *limitedBuffer) error {
 	host, ok := r.Config.Hosts[id]
 	if !ok {
 		return errors.New("unknown host")
@@ -179,6 +190,7 @@ func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, progr
 		signalSession.Store(session)
 	}
 	session.Stdout, session.Stderr = stdout, stderr
+	session.Stdin = input
 	command := "LC_ALL=C SYSTEMD_COLORS=0 " + shellQuote(program)
 	for _, arg := range args {
 		command += " " + shellQuote(arg)

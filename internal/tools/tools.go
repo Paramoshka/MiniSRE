@@ -113,7 +113,7 @@ func Specs() []Spec {
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"url":{"type":"string","description":"Required absolute http:// or https:// URL, without embedded credentials."},"method":{"type":"string","enum":["GET","HEAD"],"description":"Default GET."},"headers":{"type":"object","additionalProperties":{"type":"string"},"description":"Custom header name/value pairs; no CR/LF/NUL or header files."},"follow_redirects":{"type":"boolean","description":"Default false; follow up to five HTTP/HTTPS redirects."},"insecure":{"type":"boolean","description":"Default false; disable certificate verification only when explicitly requested by the user."},"download":{"type":"boolean","description":"GET only; save raw body to a private /tmp/mini-sre-* directory using a non-hidden filename from the original URL. Default false."}},"required":["url"],"additionalProperties":false}`),
 		},
 	}
-	return append(specs, pipelineSpec(specs))
+	return append(append(specs, pipelineSpec(specs)), labSpecs()...)
 }
 
 func Registry(runner *remote.Runner) map[string]Func {
@@ -124,7 +124,7 @@ func Registry(runner *remote.Runner) map[string]Func {
 		registry[name] = func(ctx context.Context, raw json.RawMessage) (string, error) {
 			var args toolArgs
 			var err error
-			if name != "run_pipeline" {
+			if name != "run_pipeline" && !strings.HasPrefix(name, "lab_") {
 				args, err = decodeArgs(raw)
 				if err != nil {
 					return "", err
@@ -170,6 +170,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.Pipeline(ctx, raw)
 			case "curl_http":
 				out, err = t.CurlHTTP(ctx, args)
+			case "lab_deploy", "lab_inspect", "lab_run", "lab_destroy":
+				out, err = t.Lab(ctx, name, raw)
 			default:
 				return "", errors.New("tools: no handler for tool")
 			}

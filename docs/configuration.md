@@ -2,7 +2,7 @@
 
 [Back to README](../README.md)
 
-CLI flags, model settings, SSH credentials and configuration reloads.
+CLI flags, model settings, SSH credentials, enabled lab hosts and configuration reloads.
 
 ## Flags
 
@@ -81,6 +81,11 @@ go run ./cmd -config hosts.yaml
 
 `local` always means the machine running this process; it is available without
 configuration and cannot be redefined. Other IDs come from the `hosts` mapping.
+
+Optional `lab_hosts: [lab-1]` enables the separately installed lab helper for
+selected existing IDs (or `local`). It defaults to an empty list; duplicates
+and unknown IDs are rejected. See [containerlab setup](containerlab.md).
+
 Each host needs `address`, `user` and exactly one of `key_file` or `password`.
 The default port is 22. Passwords are literal YAML strings, not environment
 references. Keys with a passphrase are not supported in this MVP.

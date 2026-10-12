@@ -78,6 +78,16 @@ that update after restart. This is not an exactly-once delivery guarantee.
 
 ## Reply formatting and delivery
 
+Before an ordinary model request, the bot sends `⏳ Принял, разбираюсь…` and
+then replaces it with the first part of the completed reply, after checkpointing.
+Further parts are sent as separate messages. A model error replaces the status
+with an error reply. Sending the status has a two-second timeout and no retries;
+failure to send or edit it falls back to normal reply delivery without repeating
+the model request. Commands, ignored updates and scheduled reports do not use
+this status. It appears when sequential processing picks up the request, not
+while the update waits in Telegram's queue. A crash/cancellation or failed
+checkpoint can leave an unfinished status; message IDs are not persisted.
+
 Telegram receives final answers with fenced code blocks, inline code and
 `**bold**` text converted to native Telegram entities. Command contents are
 preserved literally. Other Markdown syntax remains plain text; incomplete

@@ -14,6 +14,7 @@ and explains what it found.
 - Network interfaces, routes, policy rules, neighbors, sockets and ping.
 - DNS with dig/nslookup; HTTP with curl, including bounded downloads.
 - Filter diagnostic output and save it in a private directory under `/tmp`.
+- Create, inspect and clean up bounded FRR/Alpine containerlab labs on explicitly enabled hosts.
 
 The CLI supports streaming answers and shows token/cache usage. Telegram keeps
 chat history across restarts and supports scheduled checks with incident alerts.
@@ -84,8 +85,10 @@ and [scheduled checks](docs/scheduled-checks.md) for task commands and limits.
 
 ## Access and limits
 
-Commands run as the local or SSH user, without `sudo`. The agent has a fixed set
-of diagnostic tools; it cannot execute arbitrary shell commands. Downloads and
+Diagnostic commands run as the local or SSH user, without `sudo`. Optional lab
+operations use a separately installed, restricted `mini-sre-lab` helper through
+`sudo`, with host-side TTL cleanup. See [containerlab setup](docs/containerlab.md).
+The agent has a fixed toolset; it cannot execute arbitrary shell commands. Downloads and
 saved output write under `/tmp`, with a 10 MiB limit per file. Diagnostic commands
 have a 15-second timeout and bounded output.
 
@@ -100,6 +103,7 @@ observations; successful ping or HTTP transport alone does not prove service hea
 - [Diagnostic tools](docs/tools.md) — arguments, defaults, dependencies and pipelines.
 - [Telegram](docs/telegram.md) — setup, proxy, history, delivery and systemd.
 - [Scheduled checks](docs/scheduled-checks.md) — tasks, notifications and persistence.
+- [Containerlab](docs/containerlab.md) — helper installation, lab descriptions, limits and TTL.
 - [Development](docs/development.md) — checks and package layout.
 
 ## Development

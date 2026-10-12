@@ -40,6 +40,8 @@ func TestLoadRejectsInvalidConfigWithoutSecrets(t *testing.T) {
 		strings.Replace(valid, "password: secret", "key_file: key\n    password: secret", 1),
 		strings.Replace(valid, "password: secret", "port: 65536", 1),
 		valid + "telegram:\n  allowed_user_ids: [-1]\n",
+		valid + "lab_hosts: [missing]\n",
+		valid + "lab_hosts: [web, web]\n",
 	}
 	for _, content := range tests {
 		path := filepath.Join(t.TempDir(), "hosts.yaml")

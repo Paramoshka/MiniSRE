@@ -355,6 +355,7 @@ func serveSSH(conn net.Conn, cfg *ssh.ServerConfig) {
 				// Model session teardown without killing the remote watchdog first.
 				cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGHUP) }
 				cmd.Stdout, cmd.Stderr = channel, channel.Stderr()
+				cmd.Stdin = channel
 				cmd.WaitDelay = time.Second
 				err := cmd.Run()
 				status := 0

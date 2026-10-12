@@ -41,6 +41,10 @@ interval measurements. Provide explicit criteria in the task text when exact
 thresholds matter; otherwise the model uses its judgement and reports make
 that limitation clear.
 
+On enabled lab hosts, scheduled checks can use `lab_inspect` and `lab_run`.
+`lab_deploy` and `lab_destroy` are removed from scheduled tool schemas and
+blocked at execution. Lab TTL cleanup runs independently on the lab host.
+
 ## Results and notifications
 
 Results distinguish healthy, problem and unknown. Missing diagnostic calls,
