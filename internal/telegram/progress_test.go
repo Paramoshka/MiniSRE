@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -95,5 +96,44 @@ func TestProgressBeforeModelAndFallback(t *testing.T) {
 				t.Fatal("status left unfinished")
 			}
 		})
+	}
+}
+
+func TestToolMarkupNeverDeliveredOrSaved(t *testing.T) {
+	var texts []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var msg sentMessage
+		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+			t.Error(err)
+		}
+		texts = append(texts, msg.Text)
+		io.WriteString(w, `{"ok":true,"result":{"message_id":42}}`)
+	}))
+	defer server.Close()
+	b := stateBot(t, "prompt", func(context.Context, agent.Request) (*agent.Response, error) {
+		return &agent.Response{Content: "Читаю.\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"read_file\">", FinishReason: "stop"}, nil
+	})
+	b.baseURL = server.URL
+	b.statePath = t.TempDir() + "/state.json"
+	if err := b.process(context.Background(), update{ID: 1, Message: privateMessage(t, 1, "check")}); err != nil {
+		t.Fatal(err)
+	}
+	if len(texts) != 2 || !strings.Contains(texts[1], "Could not complete") {
+		t.Fatalf("replies: %v", texts)
+	}
+	for _, text := range texts {
+		if strings.Contains(text, "DSML") {
+			t.Fatal("markup reached Telegram")
+		}
+	}
+	if len(b.sessions[1].History) != 1 {
+		t.Fatal("failed turn saved in session")
+	}
+	data, err := os.ReadFile(b.statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("DSML")) {
+		t.Fatal("markup saved to state")
 	}
 }

@@ -104,13 +104,14 @@ func (s *Session) Ask(ctx context.Context, input string) (response *agent.Respon
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		tools := s.Tools
-		if round == maxToolRounds {
-			tools = nil
-		}
-		resp, err := s.Turn(ctx, agent.Request{Messages: s.History, Tools: tools})
+		resp, err := s.Turn(ctx, agent.Request{
+			Messages: s.History, Tools: s.Tools, DisableToolCalls: round == maxToolRounds,
+		})
 		if err != nil {
 			return nil, err
+		}
+		if hasToolMarkup(resp.Content) {
+			return nil, errors.New("agent: model returned tool-call markup instead of structured tool calls")
 		}
 		s.History = append(s.History, agent.Message{
 			Role: agent.RoleAssistant, Content: resp.Content,

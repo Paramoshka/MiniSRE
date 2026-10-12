@@ -85,10 +85,11 @@ type Tool struct {
 }
 
 type Request struct {
-	Messages    []Message
-	Temperature *float64
-	MaxTokens   *int
-	Tools       []Tool
+	Messages         []Message
+	Temperature      *float64
+	MaxTokens        *int
+	Tools            []Tool
+	DisableToolCalls bool
 }
 
 type Chunk struct {

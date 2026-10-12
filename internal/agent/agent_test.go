@@ -67,6 +67,7 @@ const completionWithToolCalls = `{
 }`
 
 type requestBody struct {
+	ToolChoice      string        `json:"tool_choice"`
 	Model           string        `json:"model"`
 	Messages        []messageBody `json:"messages"`
 	Temperature     *float64      `json:"temperature"`
@@ -555,4 +556,43 @@ func TestChatRetries(t *testing.T) {
 			t.Errorf("requests = %d, want 1", len(got.requests))
 		}
 	})
+}
+
+func TestDisableToolCallsKeepsSchemas(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		t.Run(fmt.Sprint(streaming), func(t *testing.T) {
+			var cap capture
+			handler := jsonHandler(&cap, completionJSON)
+			if streaming {
+				handler = sseHandler(&cap, streamEvents)
+			}
+			client := newTestClient(t, Config{}, handler)
+			req := Request{
+				Messages: []Message{
+					{Role: RoleUser, Content: "check"},
+					{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "one", Name: "probe", Arguments: "{}"}}},
+					{Role: RoleTool, ToolCallID: "one", Content: "done"},
+				},
+				Tools:            []Tool{{Name: "probe", Parameters: json.RawMessage(`{"type":"object","properties":{}}`)}},
+				DisableToolCalls: true,
+			}
+			if streaming {
+				stream, err := client.ChatStream(context.Background(), req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, err := range stream.Chunks() {
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+			} else if _, err := client.Chat(context.Background(), req); err != nil {
+				t.Fatal(err)
+			}
+			got := cap.snapshot().requests[0]
+			if got.ToolChoice != "none" || len(got.Tools) != 1 || got.Tools[0].Function.Name != "probe" {
+				t.Fatalf("schemas or explicit prohibition missing: %+v", got)
+			}
+		})
+	}
 }

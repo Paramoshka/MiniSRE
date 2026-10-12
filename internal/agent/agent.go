@@ -112,6 +112,9 @@ func (c *AgentClient) buildParams(req Request) (openai.ChatCompletionNewParams, 
 		return openai.ChatCompletionNewParams{}, err
 	}
 	params.Tools = tools
+	if req.DisableToolCalls {
+		params.ToolChoice.OfAuto = openai.String("none")
+	}
 
 	return params, nil
 }

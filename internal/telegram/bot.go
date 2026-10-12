@@ -242,11 +242,17 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart fu
 		s.Turn, s.RunTool = turn, runTool
 	}()
 	if turn != nil {
+		round := 0
 		s.Turn = func(ctx context.Context, req agent.Request) (*agent.Response, error) {
 			started := time.Now()
-			b.log(fmt.Errorf("telegram: update=%d stage=model started", updateID))
+			round++
+			b.log(fmt.Errorf("telegram: update=%d stage=model started round=%d disable_tool_calls=%t", updateID, round, req.DisableToolCalls))
 			resp, err := turn(ctx, req)
-			b.log(fmt.Errorf("telegram: update=%d stage=model duration=%s failed=%t", updateID, time.Since(started), err != nil))
+			finishReason, calls := "", 0
+			if resp != nil {
+				finishReason, calls = resp.FinishReason, len(resp.ToolCalls)
+			}
+			b.log(fmt.Errorf("telegram: update=%d stage=model duration=%s failed=%t round=%d disable_tool_calls=%t finish_reason=%q tool_calls=%d", updateID, time.Since(started), err != nil, round, req.DisableToolCalls, finishReason, calls))
 			return resp, err
 		}
 	}

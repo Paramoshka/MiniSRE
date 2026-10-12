@@ -75,13 +75,13 @@ func TestSessionFinalAnswerAfterFiveToolRounds(t *testing.T) {
 			s.Turn = func(_ context.Context, req agent.Request) (*agent.Response, error) {
 				turns++
 				if turns <= 5 {
-					if len(req.Tools) != 1 {
+					if len(req.Tools) != 1 || req.DisableToolCalls {
 						t.Fatal("tools disabled before the round limit")
 					}
 					return &agent.Response{ToolCalls: []agent.ToolCall{{ID: fmt.Sprint(turns), Name: "probe"}}}, nil
 				}
-				if len(req.Tools) != 0 || req.Messages[len(req.Messages)-1].Content != "result 5" {
-					t.Fatal("final turn must receive the fifth result without offering tools")
+				if len(req.Tools) != 1 || !req.DisableToolCalls || req.Messages[len(req.Messages)-1].Content != "result 5" {
+					t.Fatal("final turn must receive the fifth result with schemas retained and tool calls disabled")
 				}
 				if finalCallsTool {
 					return &agent.Response{ToolCalls: []agent.ToolCall{{ID: "extra", Name: "probe"}}}, nil
