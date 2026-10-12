@@ -113,6 +113,19 @@ CLI and Telegram are independent processes sharing the same configuration and
 probe code, not the same conversation history. Send SIGINT/SIGTERM to stop the
 bot and cancel active requests.
 
+Model timing logs include the request round, whether tool calls were disabled,
+`finish_reason` and the number of structured tool calls. They do not include
+message content or tool arguments/results. Known runtime credentials are masked
+in Telegram logs as well as tool responses.
+
+After five tool rounds, the final request retains tool schemas and sets
+`tool_choice=none`. If DeepSeek returns raw DSML invocation markup as text,
+the current turn fails with the usual error reply and is rolled back without
+saving that markup. Markdown code examples and block quotations remain valid.
+Existing history is preserved; use `/clear` after updating if an earlier reply
+saved this service markup. CLI streaming can print content before this completed
+response validation runs.
+
 ## Scheduled checks
 
 Use `/task` to create recurring checks and reports. See

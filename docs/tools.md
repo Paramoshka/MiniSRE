@@ -126,6 +126,11 @@ Names starting with a dot are forbidden, including `.env`, `.ssh`, `.aws`,
 `.config`, `.` and `..`. A normal-looking symlink pointing into a hidden
 directory is also rejected. Directories, devices, FIFOs and sockets are rejected
 before reading. Symlinks to ordinary allowed files are supported.
+Sensitive `/proc` components `environ`, `cmdline`, `mem`, `fd` and `fdinfo`
+are forbidden, including process aliases and task paths. This applies to local
+and SSH file tools and file sources in pipelines. Both the requested and resolved
+paths are checked. Ordinary diagnostics such as `/proc/meminfo` and
+`/proc/loadavg` remain available.
 
 For example, ask "read lines 20 through 40 of /etc/nginx/nginx.conf on web-1",
 "show the last 50 lines of /var/log/nginx/error.log", or
@@ -134,8 +139,13 @@ For example, ask "read lines 20 through 40 of /etc/nginx/nginx.conf on web-1",
 These checks prevent accidental reads of hidden paths; they are not a security
 boundary against concurrent filesystem changes, hard-link aliases, or secrets
 stored in ordinary config files. File contents are sent to the model and may be
-saved in Telegram conversation history. Only configured SSH passwords are
-automatically redacted. Limit access with local/SSH user permissions when needed.
+saved in Telegram conversation history. Configured SSH passwords, the executor's
+`TELEGRAM_BOT_TOKEN` and `DEEPSEEK_API_KEY`, and configured proxy URLs/passwords
+are automatically redacted
+from tool responses. Proxy masking covers `TELEGRAM_HTTP_PROXY`, `HTTP_PROXY`,
+`HTTPS_PROXY`, `ALL_PROXY` and the lowercase standard proxy variables.
+Other application secrets and credentials known only to a remote host are not
+covered. Limit access with local/SSH user permissions when needed.
 
 ## Network diagnostics
 

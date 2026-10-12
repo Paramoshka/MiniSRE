@@ -239,7 +239,8 @@ func TestFileToolsCommandErrors(t *testing.T) {
 }
 
 func TestFileRegistryRedactsContent(t *testing.T) {
-	path := fileFixture(t, "config", "secret setting\n")
+	t.Setenv("DEEPSEEK_API_KEY", "fake-api-secret")
+	path := fileFixture(t, "config", "secret setting fake-api-secret\n")
 	runner := &remote.Runner{Config: config.Config{Hosts: map[string]config.Host{"web": {Password: "secret"}}}}
 	for _, name := range []string{"read_file", "search_file"} {
 		args := map[string]any{"path": path}
@@ -251,7 +252,7 @@ func TestFileRegistryRedactsContent(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, err := Registry(runner)[name](context.Background(), raw)
-		if err != nil || strings.Contains(out, "secret") || !strings.Contains(out, "[redacted] setting") {
+		if err != nil || strings.Contains(out, "secret") || !strings.Contains(out, "[redacted] setting [redacted]") {
 			t.Fatalf("%s leaked password: %q, %v", name, out, err)
 		}
 	}

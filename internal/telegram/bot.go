@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"mini-sre/internal/agent"
+	"mini-sre/internal/remote"
 	"mini-sre/internal/session"
 )
 
@@ -315,7 +316,7 @@ func (b *Bot) log(err error) {
 	b.logMu.Lock()
 	defer b.logMu.Unlock()
 	if b.errOut != nil {
-		fmt.Fprintln(b.errOut, strings.ReplaceAll(err.Error(), b.token, "[redacted]"))
+		fmt.Fprintln(b.errOut, remote.RedactRuntimeSecrets(err.Error(), b.token))
 	}
 }
 

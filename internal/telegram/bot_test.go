@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,7 +37,7 @@ func TestRequestTimingLogs(t *testing.T) {
 				if req.Messages[len(req.Messages)-1].Role == agent.RoleUser {
 					return &agent.Response{ToolCalls: []agent.ToolCall{{ID: "probe", Name: "get_load_average", Arguments: "private-arguments"}}}, nil
 				}
-				return &agent.Response{Content: "private-answer"}, nil
+				return &agent.Response{Content: "private-answer", FinishReason: "stop"}, nil
 			},
 			RunTool: func(context.Context, agent.ToolCall) (string, error) {
 				return "private-result", nil
@@ -56,6 +57,9 @@ func TestRequestTimingLogs(t *testing.T) {
 			t.Fatal(err)
 		}
 		output := logs.String()
+		if !strings.Contains(output, `round=2 disable_tool_calls=false finish_reason="stop" tool_calls=0`) || !strings.Contains(output, `tool_calls=1`) {
+			t.Fatalf("model metadata missing: %s", output)
+		}
 		for _, stage := range []struct {
 			name  string
 			count int
@@ -366,5 +370,17 @@ func TestSendFormattedReply(t *testing.T) {
 	}
 	if len(sent) < 2 || code != 1 || inline != 800 || text.String() != "SSH\necho '<tag> & 🙂'\n"+strings.Repeat("df -h\n", 800) {
 		t.Fatal("actual sendMessage payload lost formatting or content")
+	}
+}
+
+func TestLogRedactsRuntimeSecrets(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "fake-api-secret")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "fake-env-token")
+	t.Setenv("TELEGRAM_HTTP_PROXY", "http://user:fake-proxy-secret@proxy.test:8080")
+	var logs bytes.Buffer
+	b := &Bot{token: "fake-bot-token", errOut: &logs}
+	b.log(errors.New("fake-api-secret fake-env-token fake-bot-token http://user:fake-proxy-secret@proxy.test:8080 fake-proxy-secret"))
+	if strings.Contains(logs.String(), "fake-") || strings.Count(logs.String(), "[redacted]") != 5 {
+		t.Fatalf("credentials leaked: %s", logs.String())
 	}
 }

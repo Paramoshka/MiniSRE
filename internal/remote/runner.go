@@ -243,12 +243,11 @@ func shellQuote(value string) string {
 }
 
 func (r *Runner) Redact(value string) string {
+	var passwords []string
 	for _, host := range r.Config.Hosts {
-		if host.Password != "" {
-			value = strings.ReplaceAll(value, host.Password, "[redacted]")
-		}
+		passwords = append(passwords, host.Password)
 	}
-	return value
+	return RedactRuntimeSecrets(value, passwords...)
 }
 
 type limitedBuffer struct {

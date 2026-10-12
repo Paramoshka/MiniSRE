@@ -20,6 +20,15 @@ func validateFilePath(path string) error {
 			return errors.New("tools: hidden path components, . and .. are not allowed")
 		}
 	}
+	components := strings.FieldsFunc(path, func(c rune) bool { return c == '/' })
+	if len(components) > 0 && components[0] == "proc" {
+		for _, component := range components[1:] {
+			switch component {
+			case "environ", "cmdline", "mem", "fd", "fdinfo":
+				return errors.New("tools: sensitive process files in /proc are not allowed")
+			}
+		}
+	}
 	return nil
 }
 

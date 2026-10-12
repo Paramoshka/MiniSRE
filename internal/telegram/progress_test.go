@@ -101,6 +101,15 @@ func TestProgressBeforeModelAndFallback(t *testing.T) {
 
 func TestToolMarkupNeverDeliveredOrSaved(t *testing.T) {
 	var texts []string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"broken","object":"chat.completion","model":"deepseek-flash","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"Читаю.\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"read_file\">","tool_calls":null}}]}`)
+	}))
+	defer model.Close()
+	client, err := agent.New(agent.Config{APIKey: "fake-api-key", BaseURL: model.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var msg sentMessage
 		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
@@ -110,9 +119,7 @@ func TestToolMarkupNeverDeliveredOrSaved(t *testing.T) {
 		io.WriteString(w, `{"ok":true,"result":{"message_id":42}}`)
 	}))
 	defer server.Close()
-	b := stateBot(t, "prompt", func(context.Context, agent.Request) (*agent.Response, error) {
-		return &agent.Response{Content: "Читаю.\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"read_file\">", FinishReason: "stop"}, nil
-	})
+	b := stateBot(t, "prompt", client.Chat)
 	b.baseURL = server.URL
 	b.statePath = t.TempDir() + "/state.json"
 	if err := b.process(context.Background(), update{ID: 1, Message: privateMessage(t, 1, "check")}); err != nil {

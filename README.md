@@ -92,8 +92,9 @@ The agent has a fixed toolset; it cannot execute arbitrary shell commands. Downl
 saved output write under `/tmp`, with a 10 MiB limit per file. Diagnostic commands
 have a 15-second timeout and bounded output.
 
-Logs and config files can contain secrets and are sent to the model. Only configured
-SSH passwords are automatically redacted; saved files contain raw data. Give the
+Logs and config files can contain secrets and are sent to the model. Configured
+SSH passwords and known runtime credentials (Telegram, DeepSeek and proxies) are
+automatically redacted; saved files contain raw data. Give the
 agent access only to hosts and files you want it to inspect. Tool results are
 observations; successful ping or HTTP transport alone does not prove service health.
 
