@@ -89,7 +89,10 @@ func TestTopologyValidationAndRender(t *testing.T) {
 	if _, err := ParseTopology(string(data)); err == nil {
 		t.Fatal("node limit bypassed")
 	}
-	rendered, err := renderTopology(topo, testConfig(), "/var/lib/mini-sre/labs/"+topo.Name)
+	cfg := testConfig()
+	cfg.Images["alpine"] = "mini-sre-alpine:local"
+	cfg.Images["frr"] = "mini-sre-frr:local"
+	rendered, err := renderTopology(topo, cfg, "/var/lib/mini-sre/labs/"+topo.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +103,7 @@ func TestTopologyValidationAndRender(t *testing.T) {
 		} `yaml:"mgmt"`
 		Topology struct {
 			Nodes map[string]struct {
+				Image      string            `yaml:"image"`
 				Privileged bool              `yaml:"privileged"`
 				Memory     string            `yaml:"memory"`
 				CPU        float64           `yaml:"cpu"`
@@ -114,7 +118,10 @@ func TestTopologyValidationAndRender(t *testing.T) {
 	if decoded.Management.External || decoded.Management.Subnet != testConfig().ManagementSubnet {
 		t.Fatal("management safety settings lost")
 	}
-	for _, node := range decoded.Topology.Nodes {
+	for name, node := range decoded.Topology.Nodes {
+		if node.Image != cfg.Images[topo.Nodes[name].Profile] {
+			t.Fatalf("wrong image: %+v", node)
+		}
 		if node.Privileged || node.Memory != "256MiB" || node.CPU != 0.5 || node.Pull != "Never" || node.Labels["mini-sre.owner"] != "test-owner" {
 			t.Fatalf("unsafe node: %+v", node)
 		}
@@ -146,6 +153,103 @@ func TestConfigAndRequestValidation(t *testing.T) {
 		if _, err := DecodeRequest(strings.NewReader(data)); err == nil {
 			t.Fatal("invalid request accepted")
 		}
+	}
+}
+
+func TestConfigImageReferences(t *testing.T) {
+	cases := []struct {
+		image string
+		valid bool
+	}{
+		{"registry.example/image@sha256:" + strings.Repeat("a", 64), true},
+		{"mini-sre-alpine:local", true},
+		{"mini-sre-frr:local", true},
+		{"", false},
+		{"alpine", false},
+		{"alpine:latest", false},
+		{"registry.example/alpine:local", false},
+		{"mini-sre-frr:local@sha256:bad", false},
+		{"sha256:" + strings.Repeat("a", 64), false},
+		{"image@sha256:" + strings.Repeat("a", 63), false},
+		{"image@sha256:" + strings.Repeat("A", 64), false},
+		{"-image:local", false},
+		{"image:local; id", false},
+		{"image:local\n", false},
+	}
+	for _, profile := range []string{"alpine", "frr"} {
+		for _, tc := range cases {
+			t.Run(profile+"/"+tc.image, func(t *testing.T) {
+				cfg := testConfig()
+				cfg.Images[profile] = tc.image
+				data, err := yaml.Marshal(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = ParseConfig(string(data))
+				if (err == nil) != tc.valid {
+					t.Fatalf("valid=%v, error=%v", tc.valid, err)
+				}
+			})
+		}
+	}
+}
+
+func TestLocalImageDeployAndInspect(t *testing.T) {
+	data, err := os.ReadFile("../../examples/mini-sre-lab.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ParseConfig(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, missing := range []bool{false, true} {
+		name := "preloaded"
+		if missing {
+			name = "missing"
+		}
+		t.Run(name, func(t *testing.T) {
+			m, fake := testManager(t)
+			m.cfg = cfg
+			m.run = func(ctx context.Context, dir, program string, args ...string) CommandResult {
+				if program == "docker" && args[0] == "image" {
+					if len(args) != 3 || args[1] != "inspect" || (args[2] != cfg.Images["alpine"] && args[2] != cfg.Images["frr"]) {
+						t.Fatalf("unexpected image command: %v", args)
+					}
+					if missing {
+						return CommandResult{ExitCode: 1, Stderr: "No such image"}
+					}
+				}
+				return fake.run(ctx, dir, program, args...)
+			}
+			_, err := m.Handle(context.Background(), Request{Action: "deploy", Topology: simpleTopology})
+			if missing {
+				if err == nil || !strings.Contains(err.Error(), "preload approved image") || fake.deploys != 0 {
+					t.Fatalf("missing image: deploys=%d, error=%v", fake.deploys, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := m.Handle(context.Background(), Request{Action: "inspect", Name: "msre-lab-demo"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			labs := response.([]LabInfo)
+			if len(labs) != 1 || len(labs[0].Nodes) != 2 {
+				t.Fatalf("unexpected labs: %+v", labs)
+			}
+			for _, node := range labs[0].Nodes {
+				profile := "alpine"
+				if node.Name == "router" {
+					profile = "frr"
+				}
+				if node.Image != cfg.Images[profile] {
+					t.Fatalf("unexpected image: %+v", node)
+				}
+			}
+		})
 	}
 }
 

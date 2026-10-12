@@ -41,6 +41,7 @@ type Route struct {
 var namePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}$`)
 var interfacePattern = regexp.MustCompile(`^eth[1-9][0-9]?$`)
 var imagePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9./:_-]*@sha256:[a-f0-9]{64}$`)
+var localImagePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*:local$`)
 
 func validName(name string) bool { return namePattern.MatchString(name) }
 
@@ -93,8 +94,8 @@ func ParseConfig(data string) (Config, error) {
 	}
 	for _, profile := range []string{"frr", "alpine"} {
 		image := cfg.Images[profile]
-		if !imagePattern.MatchString(image) {
-			return cfg, fmt.Errorf("lab: %s image must be pinned by sha256 digest", profile)
+		if !imagePattern.MatchString(image) && !localImagePattern.MatchString(image) {
+			return cfg, fmt.Errorf("lab: %s image must be pinned by sha256 digest or use a local name with :local tag", profile)
 		}
 	}
 	return cfg, nil

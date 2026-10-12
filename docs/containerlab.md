@@ -28,8 +28,11 @@ The example subnet is a candidate, not a reservation for your host. Set a stable
 `owner_id`; do not change it while registered labs exist.
 
 Configure exactly two image profiles, `alpine` and `frr`, with immutable
-`repository@sha256:...` references. Preload both images through the same local
-Docker daemon used by root. They must provide `ip` with JSON output, iputils
+`repository@sha256:...` references or local names such as `mini-sre-alpine:local`
+and `mini-sre-frr:local`. Local names must have no registry/path and use the
+`:local` tag; other tags and bare image IDs are rejected.
+Preload both images through the same local Docker daemon used by root.
+They must provide `ip` with JSON output, iputils
 ping, traceroute, tcpdump and timeout supporting `-k`; FRR also needs vtysh,
 Zebra, BGP/OSPF daemons and the normal `/etc/frr/daemons` startup mechanism.
 The helper never installs packages or pulls images during deployment.
@@ -37,9 +40,7 @@ The helper never installs packages or pulls images during deployment.
 [The image Dockerfile](../examples/lab-images/Dockerfile) adds diagnostic
 packages to approved Alpine or Alpine-based FRR images and preserves FRR's
 existing startup command. See [local image builds](#local-image-builds) for
-commands that build both profiles without publishing them. The current helper
-still requires repository digests in the host config; local tags and image IDs
-are not accepted.
+commands that build both profiles without publishing them.
 
 Replace the SSH username in [the sudoers example](../examples/mini-sre-lab.sudoers).
 Install only that exact helper command, without wildcard arguments:
@@ -93,14 +94,19 @@ Both resulting images contain `iproute2`, `iputils`, `traceroute`, `tcpdump`
 and GNU coreutils (including `timeout`). FRR retains its entrypoint and startup
 command because the Dockerfile does not override them.
 
-These commands prepare local images, but do not yet make them usable by the
-current helper. Its config accepts only `repository@sha256:<64 hex digits>`;
-`mini-sre-alpine:local`, `mini-sre-frr:local` and bare `sha256:...` image IDs
-are rejected. A local image ID is not a repository manifest digest: do not
-append it to a repository name with `@sha256:` or reuse the base image's digest
-for a derived image. To deploy these builds without publishing, the helper
-needs support for local image IDs first. With the current helper, use separately
-published and preloaded derived images and their own repository digests.
+Use the resulting local tags directly in `/etc/mini-sre/lab.yaml`, as in
+[the host config example](../examples/mini-sre-lab.yaml):
+
+```yaml
+images:
+  alpine: mini-sre-alpine:local
+  frr: mini-sre-frr:local
+```
+
+No image digest or registry push is required for these local builds. Deployment
+checks that both images already exist in Docker and never pulls a missing image.
+Local tags are mutable: rebuilding or retagging changes the image used by the
+next deployment, while existing containers keep their original image.
 
 ## Describe and operate a lab
 

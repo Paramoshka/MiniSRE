@@ -2,7 +2,8 @@
 owner_id: mini-sre
 # Example only: reserve an unused /24 after checking host/VPN/Docker routes.
 mgmt_subnet: 172.31.250.0/24
-# Replace both digest placeholders with preloaded, approved diagnostic images.
+# Build and preload these approved diagnostic images; see docs/containerlab.md.
+# Repository references pinned by @sha256:<64 hex digits> are also supported.
 images:
-  alpine: registry.example/mini-sre-alpine@sha256:REPLACE_WITH_64_HEX_DIGEST
-  frr: registry.example/mini-sre-frr@sha256:REPLACE_WITH_64_HEX_DIGEST
+  alpine: mini-sre-alpine:local
+  frr: mini-sre-frr:local
