@@ -25,6 +25,9 @@ func New(cfg Config) (*AgentClient, error) {
 	if cfg.APIKey == "" {
 		return nil, errors.New("agent: api key is required")
 	}
+	if cfg.Timeout < 0 {
+		return nil, errors.New("agent: timeout must be positive")
+	}
 	if *cfg.MaxRetries < 0 {
 		return nil, errors.New("agent: max retries must be >= 0")
 	}

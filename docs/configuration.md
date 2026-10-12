@@ -10,6 +10,7 @@ CLI flags, model settings, SSH credentials, enabled lab hosts and configuration 
 |---|---|---|
 | `-model` | `deepseek-flash` | model ID (`deepseek-flash`, `deepseek-v4-pro`) |
 | `-base-url` | `https://api.deepseek.com` | API base URL |
+| `-model-timeout` | `180s` | positive duration per model HTTP attempt; overrides `DEEPSEEK_TIMEOUT` |
 | `-temperature` | server default (1.0) | 0..2; ignored in thinking mode |
 | `-thinking` | `false` | enable thinking mode |
 | `-reasoning-effort` | server default (`high` when thinking is enabled) | `low`, `high`, `max`; used only in thinking mode |
@@ -31,6 +32,7 @@ These settings apply to CLI requests, Telegram conversations and scheduled check
 
 | Environment variable | Default | Description |
 |---|---|---|
+| `DEEPSEEK_TIMEOUT` | `180s` | Positive model HTTP attempt timeout, e.g. `180s` or `3m` |
 | `DEEPSEEK_THINKING` | `false` | Enable thinking with `true` |
 | `DEEPSEEK_REASONING_EFFORT` | server default (`high`) | `low`, `high` or `max`; sent only when thinking is enabled |
 | `DEEPSEEK_TEMPERATURE` | server default (`1.0`) | Number from `0` to `2`; ignored by DeepSeek in thinking mode |
@@ -55,6 +57,13 @@ Explicit flags override their corresponding environment variables, including
 even when `DEEPSEEK_TEMPERATURE` is set. Real environment variables override
 `.env`; unset or empty values use the defaults above. Invalid settings stop
 startup. Restart the bot after changing these settings.
+
+`-model-timeout` overrides `DEEPSEEK_TIMEOUT`, including an invalid environment
+value. Unset or empty values use `180s`; zero, negative or malformed durations
+stop startup. The timeout applies to each HTTP attempt, not the entire conversation
+request. Existing SDK retries for eligible errors are unchanged; expiration of
+the request timeout does not retry the model call. A shorter parent deadline takes
+precedence, including the two-minute total deadline for scheduled checks.
 
 Temperature changes the randomness of token selection: lower values favor
 likely continuations and more consistent wording; higher values produce more

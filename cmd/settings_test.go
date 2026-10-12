@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"testing"
+	"time"
 
 	"mini-sre/internal/agent"
 )
@@ -33,12 +34,14 @@ func TestModelSettings(t *testing.T) {
 		{name: "invalid effort", effort: "medium", wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("DEEPSEEK_TIMEOUT", "")
 			t.Setenv("DEEPSEEK_THINKING", test.thinking)
 			t.Setenv("DEEPSEEK_REASONING_EFFORT", test.effort)
 			t.Setenv("DEEPSEEK_TEMPERATURE", test.temperature)
 			flags := flag.NewFlagSet("test", flag.ContinueOnError)
 			flags.String("model", "", "")
 			flags.String("base-url", "", "")
+			flags.Duration("model-timeout", agent.DefaultTimeout, "")
 			flags.Bool("thinking", false, "")
 			flags.String("reasoning-effort", "", "")
 			flags.Float64("temperature", -1, "")
@@ -68,3 +71,50 @@ func TestModelSettings(t *testing.T) {
 }
 
 func float64Ptr(value float64) *float64 { return &value }
+
+func TestModelTimeoutSettings(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		env       string
+		args      []string
+		want      time.Duration
+		wantError bool
+	}{
+		{name: "default", want: 180 * time.Second},
+		{name: "environment", env: " 4m ", want: 4 * time.Minute},
+		{name: "empty environment", env: " ", want: 180 * time.Second},
+		{name: "flag", args: []string{"-model-timeout=90s"}, want: 90 * time.Second},
+		{name: "flag overrides environment", env: "4m", args: []string{"-model-timeout=90s"}, want: 90 * time.Second},
+		{name: "flag overrides invalid environment", env: "bad", args: []string{"-model-timeout=3m"}, want: 3 * time.Minute},
+		{name: "invalid environment", env: "bad", wantError: true},
+		{name: "missing unit", env: "180", wantError: true},
+		{name: "zero environment", env: "0s", wantError: true},
+		{name: "negative environment", env: "-1s", wantError: true},
+		{name: "zero flag", args: []string{"-model-timeout=0s"}, wantError: true},
+		{name: "negative flag", args: []string{"-model-timeout=-1s"}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("DEEPSEEK_TIMEOUT", test.env)
+			t.Setenv("DEEPSEEK_THINKING", "")
+			t.Setenv("DEEPSEEK_REASONING_EFFORT", "")
+			t.Setenv("DEEPSEEK_TEMPERATURE", "")
+			flags := flag.NewFlagSet("test", flag.ContinueOnError)
+			flags.String("model", "", "")
+			flags.String("base-url", "", "")
+			flags.Bool("thinking", false, "")
+			flags.String("reasoning-effort", "", "")
+			flags.Float64("temperature", -1, "")
+			flags.Duration("model-timeout", agent.DefaultTimeout, "")
+			if err := flags.Parse(test.args); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := modelSettings(flags)
+			if (err != nil) != test.wantError {
+				t.Fatalf("error = %v, want error %t", err, test.wantError)
+			}
+			if !test.wantError && cfg.Timeout != test.want {
+				t.Fatalf("timeout = %s, want %s", cfg.Timeout, test.want)
+			}
+		})
+	}
+}

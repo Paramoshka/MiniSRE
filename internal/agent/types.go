@@ -9,7 +9,7 @@ import (
 const (
 	DefaultBaseURL    = "https://api.deepseek.com"
 	DefaultModel      = "deepseek-flash"
-	DefaultTimeout    = 60 * time.Second
+	DefaultTimeout    = 180 * time.Second
 	DefaultMaxRetries = 2
 )
 

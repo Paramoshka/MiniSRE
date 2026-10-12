@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"mini-sre/internal/agent"
 	"mini-sre/internal/cli"
@@ -33,6 +34,7 @@ func main() {
 func run() (err error) {
 	flag.String("model", "", "model ID (default deepseek-flash)")
 	flag.String("base-url", "", "API base URL (default https://api.deepseek.com)")
+	flag.Duration("model-timeout", agent.DefaultTimeout, "model HTTP attempt timeout; overrides DEEPSEEK_TIMEOUT")
 	flag.Float64("temperature", -1, "sampling temperature 0..2 (-1 = server default); overrides DEEPSEEK_TEMPERATURE")
 	flag.Bool("thinking", false, "enable thinking mode; overrides DEEPSEEK_THINKING")
 	flag.String("reasoning-effort", "", "thinking effort: low, high or max; overrides DEEPSEEK_REASONING_EFFORT")
@@ -143,6 +145,11 @@ func modelSettings(flags *flag.FlagSet) (agent.Config, error) {
 		ReasoningEffort: value("reasoning-effort", "DEEPSEEK_REASONING_EFFORT"),
 		Thinking:        agent.ThinkingDisabled,
 	}
+	timeout, err := time.ParseDuration(value("model-timeout", "DEEPSEEK_TIMEOUT"))
+	if err != nil || timeout <= 0 {
+		return cfg, errors.New("model timeout must be a positive duration, such as 180s or 3m")
+	}
+	cfg.Timeout = timeout
 	thinking, err := strconv.ParseBool(value("thinking", "DEEPSEEK_THINKING"))
 	if err != nil {
 		return cfg, errors.New("DEEPSEEK_THINKING must be true or false")

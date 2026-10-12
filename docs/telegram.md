@@ -88,6 +88,16 @@ this status. It appears when sequential processing picks up the request, not
 while the update waits in Telegram's queue. A crash/cancellation or failed
 checkpoint can leave an unfinished status; message IDs are not persisted.
 
+A model timeout replaces the status with a specific Russian error explaining
+that earlier actions may have taken effect. The bot does not repeat the request
+or tools; it checkpoints the update offset and rolls back the failed turn's
+conversation history. History rollback does not undo deployed or destroyed labs.
+Check the lab's current state before repeating a deployment request. The model
+HTTP attempt timeout defaults to `180s` and can be set with `-model-timeout` or
+`DEEPSEEK_TIMEOUT`; restart after changing it. Longer timeouts can delay subsequent
+messages because chat updates are processed sequentially. Shutdown cancellation
+continues to stop processing rather than sending a timeout reply.
+
 Telegram receives final answers with fenced code blocks, inline code and
 `**bold**` text converted to native Telegram entities. Command contents are
 preserved literally. Other Markdown syntax remains plain text; incomplete
