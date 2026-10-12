@@ -35,9 +35,11 @@ Zebra, BGP/OSPF daemons and the normal `/etc/frr/daemons` startup mechanism.
 The helper never installs packages or pulls images during deployment.
 
 [The image Dockerfile](../examples/lab-images/Dockerfile) adds diagnostic
-packages to approved Alpine or Alpine-based FRR images. Build and publish these
-images separately, review them, and use their resulting repository digests in
-the host config. It preserves FRR's existing startup command.
+packages to approved Alpine or Alpine-based FRR images and preserves FRR's
+existing startup command. See [local image builds](#local-image-builds) for
+commands that build both profiles without publishing them. The current helper
+still requires repository digests in the host config; local tags and image IDs
+are not accepted.
 
 Replace the SSH username in [the sudoers example](../examples/mini-sre-lab.sudoers).
 Install only that exact helper command, without wildcard arguments:
@@ -63,6 +65,42 @@ lab_hosts: [lab-1]
 `lab-1` must already be an SSH host ID. Use `[local]` only when the helper is
 installed on the agent machine. Lab tools require an explicit enabled `host_id`;
 existing configurations keep lab execution disabled.
+
+## Local image builds
+
+Run these commands from the repository root on the lab host, using the same
+Docker daemon as the root helper. These base references were checked on
+2026-10-12: Alpine 3.24.2 and the Alpine-based FRR 10.7.1. The build downloads
+base images and diagnostic packages; no registry login or image push is needed.
+
+```bash
+ALPINE_BASE='docker.io/library/alpine@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6'
+FRR_BASE='quay.io/frrouting/frr@sha256:e995beaa50fdc9edb35eadcfefa29b7f062cc06f2b812613789b68fa541554d2'
+
+sudo docker build -f examples/lab-images/Dockerfile \
+  --build-arg BASE_IMAGE="$ALPINE_BASE" \
+  -t mini-sre-alpine:local .
+
+sudo docker build -f examples/lab-images/Dockerfile \
+  --build-arg BASE_IMAGE="$FRR_BASE" \
+  -t mini-sre-frr:local .
+
+sudo docker image inspect --format '{{.RepoTags}} {{.Id}}' \
+  mini-sre-alpine:local mini-sre-frr:local
+```
+
+Both resulting images contain `iproute2`, `iputils`, `traceroute`, `tcpdump`
+and GNU coreutils (including `timeout`). FRR retains its entrypoint and startup
+command because the Dockerfile does not override them.
+
+These commands prepare local images, but do not yet make them usable by the
+current helper. Its config accepts only `repository@sha256:<64 hex digits>`;
+`mini-sre-alpine:local`, `mini-sre-frr:local` and bare `sha256:...` image IDs
+are rejected. A local image ID is not a repository manifest digest: do not
+append it to a repository name with `@sha256:` or reuse the base image's digest
+for a derived image. To deploy these builds without publishing, the helper
+needs support for local image IDs first. With the current helper, use separately
+published and preloaded derived images and their own repository digests.
 
 ## Describe and operate a lab
 
