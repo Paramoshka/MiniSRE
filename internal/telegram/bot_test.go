@@ -22,6 +22,9 @@ import (
 func TestRequestTimingLogs(t *testing.T) {
 	var logs bytes.Buffer
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if acceptProgress(t, w, r) {
+			return
+		}
 		io.WriteString(w, `{"ok":true,"result":{}}`)
 	}))
 	defer server.Close()
@@ -98,6 +101,9 @@ func TestAccessAndChatHistory(t *testing.T) {
 	var mu sync.Mutex
 	var sent []sentMessage
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if acceptProgress(t, w, r) {
+			return
+		}
 		var msg sentMessage
 		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
 			t.Error(err)
@@ -157,6 +163,9 @@ func TestPollingOffsetRetriesAndDuplicates(t *testing.T) {
 	var offsets []int64
 	polls, sent, modelCalls := 0, 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if acceptProgress(t, w, r) {
+			return
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		switch {
@@ -183,7 +192,7 @@ func TestPollingOffsetRetriesAndDuplicates(t *testing.T) {
 				w.WriteHeader(409)
 				io.WriteString(w, `{"ok":false,"error_code":409,"description":"other poller"}`)
 			}
-		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"), strings.HasSuffix(r.URL.Path, "/editMessageText"):
 			sent++
 			io.WriteString(w, `{"ok":true,"result":{}}`)
 		default:
@@ -216,6 +225,9 @@ func TestPollingOffsetRetriesAndDuplicates(t *testing.T) {
 
 func TestAccessReloadPreservesHistory(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if acceptProgress(t, w, r) {
+			return
+		}
 		io.WriteString(w, `{"ok":true,"result":{}}`)
 	}))
 	defer server.Close()
@@ -249,6 +261,9 @@ func TestWebhookAndShutdown(t *testing.T) {
 	for _, webhook := range []bool{true, false} {
 		t.Run(fmt.Sprintf("webhook=%v", webhook), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if acceptProgress(t, w, r) {
+					return
+				}
 				if strings.HasSuffix(r.URL.Path, "/getWebhookInfo") {
 					url := ""
 					if webhook {
@@ -299,6 +314,9 @@ func TestSendFormattedReply(t *testing.T) {
 	var mu sync.Mutex
 	var sent []sentMessage
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if acceptProgress(t, w, r) {
+			return
+		}
 		var msg sentMessage
 		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
 			t.Error(err)

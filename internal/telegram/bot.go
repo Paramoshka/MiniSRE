@@ -165,7 +165,22 @@ func (b *Bot) Run(ctx context.Context) (runErr error) {
 }
 
 func (b *Bot) process(ctx context.Context, u update) error {
-	text, err := b.handle(ctx, u.Message, u.ID)
+	var progressID int64
+	text, err := b.handle(ctx, u.Message, u.ID, func() {
+		progressCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		var sent struct {
+			ID int64 `json:"message_id"`
+		}
+		err := b.call(progressCtx, "sendMessage", map[string]any{
+			"chat_id": u.Message.Chat.ID, "text": "⏳ Принял, разбираюсь…",
+		}, &sent)
+		if err != nil {
+			b.log(err)
+			return
+		}
+		progressID = sent.ID
+	})
 	if err != nil {
 		return err
 	}
@@ -187,12 +202,12 @@ func (b *Bot) process(ctx context.Context, u update) error {
 	}
 	started = time.Now()
 	b.log(fmt.Errorf("telegram: update=%d stage=send started", u.ID))
-	err = b.send(ctx, u.Message.Chat.ID, text)
+	err = b.sendReply(ctx, u.Message.Chat.ID, progressID, text)
 	b.log(fmt.Errorf("telegram: update=%d stage=send duration=%s failed=%t", u.ID, time.Since(started), err != nil))
 	return err
 }
 
-func (b *Bot) handle(ctx context.Context, m *message, updateID int64) (string, error) {
+func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart func()) (string, error) {
 	if m == nil || m.From == nil || m.Chat.Type != "private" || !slices.Contains(b.users(), m.From.ID) || strings.TrimSpace(m.Text) == "" {
 		return "", nil
 	}
@@ -215,6 +230,7 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64) (string, e
 	if strings.HasPrefix(input, "/") {
 		return "Unknown command. /start — help, /clear — reset history.", nil
 	}
+	onStart()
 	s := b.sessions[m.Chat.ID]
 	if s == nil {
 		s = b.newSession()
@@ -259,10 +275,28 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64) (string, e
 }
 
 func (b *Bot) send(ctx context.Context, chatID int64, text string) error {
+	return b.sendReply(ctx, chatID, 0, text)
+}
+
+func (b *Bot) sendReply(ctx context.Context, chatID, progressID int64, text string) error {
 	for _, part := range formatReply(text) {
 		params := map[string]any{"chat_id": chatID, "text": part.Text}
 		if len(part.Entities) > 0 {
 			params["entities"] = part.Entities
+		}
+		if progressID != 0 {
+			params["message_id"] = progressID
+			err := b.callWithRetry(ctx, "editMessageText", params, nil)
+			progressID = 0
+			var apiErr *apiError
+			if err == nil || (errors.As(err, &apiErr) && apiErr.Code == 400 && strings.Contains(apiErr.Description, "message is not modified")) {
+				continue
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			b.log(err)
+			delete(params, "message_id")
 		}
 		if err := b.callWithRetry(ctx, "sendMessage", params, nil); err != nil {
 			return err

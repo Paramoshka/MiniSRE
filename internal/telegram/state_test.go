@@ -53,6 +53,9 @@ func TestStateRestoresBoundedToolHistoriesAndClear(t *testing.T) {
 	var nextOffset atomic.Int64
 	var clear atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if acceptProgress(t, w, r) {
+			return
+		}
 		// Verify the checkpoint from Telegram's side, before accepting the reply.
 		data, err := os.ReadFile(path)
 		var state savedState
@@ -183,6 +186,9 @@ func TestPollingWriteFailureIsFatalBeforeReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if acceptProgress(t, w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/getWebhookInfo"):
 			io.WriteString(w, `{"ok":true,"result":{"url":""}}`)
@@ -216,6 +222,9 @@ func TestPollingRestoresOffsetAndDoesNotRepeatModel(t *testing.T) {
 	var offsets []int64
 	sent, modelCalls := 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if acceptProgress(t, w, r) {
+			return
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		switch {
@@ -239,7 +248,7 @@ func TestPollingRestoresOffsetAndDoesNotRepeatModel(t *testing.T) {
 			} else {
 				io.WriteString(w, `{"ok":true,"result":[{"update_id":40,"message":{"text":"duplicate","from":{"id":1},"chat":{"id":1,"type":"private"}}},{"update_id":41,"message":{"text":"second","from":{"id":1},"chat":{"id":1,"type":"private"}}}]}`)
 			}
-		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"), strings.HasSuffix(r.URL.Path, "/editMessageText"):
 			sent++
 			io.WriteString(w, `{"ok":true,"result":{}}`)
 		}
@@ -275,6 +284,9 @@ func TestPollingRestoresOffsetAndDoesNotRepeatModel(t *testing.T) {
 func TestModelFailureAndCancellationKeepCompletedHistory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "telegram.json")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if acceptProgress(t, w, r) {
+			return
+		}
 		io.WriteString(w, `{"ok":true,"result":{}}`)
 	}))
 	defer server.Close()

@@ -26,7 +26,8 @@ func testTasks(t *testing.T) (*Bot, *taskScheduler) {
 	if err := b.UseTasks(filepath.Join(t.TempDir(), "tasks.json")); err != nil {
 		t.Fatal(err)
 	}
-	b.tasks.now = func() time.Time { return time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC) }
+	now := time.Now().UTC()
+	b.tasks.now = func() time.Time { return now }
 	return b, b.tasks
 }
 
