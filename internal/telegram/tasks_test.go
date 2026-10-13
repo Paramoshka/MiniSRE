@@ -319,6 +319,48 @@ func TestTaskModelVerdictRequiresDiagnostics(t *testing.T) {
 	}
 }
 
+func TestTaskFinalAnswerAndRepairRetainJSONContract(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		repair bool
+	}{{"final answer", false}, {"repair", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, _ := testTasks(t)
+			turns, executions := 0, 0
+			b.newSession = func() *session.Session {
+				return &session.Session{
+					Turn: func(_ context.Context, req agent.Request) (*agent.Response, error) {
+						turns++
+						if turns <= 5 {
+							return &agent.Response{ToolCalls: []agent.ToolCall{{ID: "probe", Name: "get_service_status"}}}, nil
+						}
+						if !req.DisableToolCalls || req.Messages[len(req.Messages)-1].Role != agent.RoleSystem ||
+							!strings.Contains(req.Messages[0].Content, "Return exactly one JSON object") {
+							t.Fatal("final request lost the scheduled check's JSON contract")
+						}
+						if tc.repair && turns == 6 {
+							return &agent.Response{Content: "<|DSML| invoke>"}, nil
+						}
+						return &agent.Response{Content: `{"status":"problem","summary":"inactive"}`}, nil
+					},
+					RunTool: func(context.Context, agent.ToolCall) (string, error) {
+						executions++
+						return "inactive", nil
+					},
+				}
+			}
+			result := b.checkTask(context.Background(), scheduledTask{OwnerID: 1, Prompt: "check"})
+			wantTurns := 6
+			if tc.repair {
+				wantTurns++
+			}
+			if result.Status != "problem" || result.Summary != "inactive" || executions != 5 || turns != wantTurns {
+				t.Fatalf("result=%+v executions=%d turns=%d", result, executions, turns)
+			}
+		})
+	}
+}
+
 func TestTaskRevokedAccessDoesNotCallModel(t *testing.T) {
 	b, s := testTasks(t)
 	task := addTestTask(t, s, "5m", "1h")

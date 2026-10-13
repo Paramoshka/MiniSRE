@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"mini-sre/internal/agent"
+	"mini-sre/internal/session"
 )
 
 const streamBody = `data: {"id":"chat-1","object":"chat.completion.chunk","created":1,"model":"deepseek-flash","choices":[{"index":0,"delta":{"reasoning_content":"think "},"finish_reason":null}]}
@@ -289,8 +290,8 @@ func TestAskToolRoundsExceeded(t *testing.T) {
 	}
 
 	err = app.Ask(context.Background(), "loop")
-	if err == nil || !strings.Contains(err.Error(), "tool rounds exceeded") {
-		t.Fatalf("Ask error = %v, want tool rounds exceeded", err)
+	if !errors.Is(err, session.ErrResponseFormat) {
+		t.Fatalf("Ask error = %v, want response format error", err)
 	}
 	if len(app.session.History) != 1 || app.session.History[0].Role != agent.RoleSystem {
 		t.Errorf("history = %+v, want rolled back to system message", app.session.History)

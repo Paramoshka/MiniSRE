@@ -80,7 +80,7 @@ func TestSessionFinalAnswerAfterFiveToolRounds(t *testing.T) {
 					}
 					return &agent.Response{ToolCalls: []agent.ToolCall{{ID: fmt.Sprint(turns), Name: "probe"}}}, nil
 				}
-				if len(req.Tools) != 1 || !req.DisableToolCalls || req.Messages[len(req.Messages)-1].Content != "result 5" {
+				if len(req.Tools) != 1 || !req.DisableToolCalls || req.Messages[len(req.Messages)-2].Content != "result 5" || req.Messages[len(req.Messages)-1].Role != agent.RoleSystem {
 					t.Fatal("final turn must receive the fifth result with schemas retained and tool calls disabled")
 				}
 				if finalCallsTool {
@@ -93,11 +93,15 @@ func TestSessionFinalAnswerAfterFiveToolRounds(t *testing.T) {
 				return fmt.Sprintf("result %d", executions), nil
 			}
 			resp, err := s.Ask(context.Background(), "diagnose")
-			if turns != 6 || executions != 5 {
-				t.Fatalf("turns=%d executions=%d, want 6 and 5", turns, executions)
+			wantTurns := 6
+			if finalCallsTool {
+				wantTurns++
+			}
+			if turns != wantTurns || executions != 5 {
+				t.Fatalf("turns=%d executions=%d, want %d and 5", turns, executions, wantTurns)
 			}
 			if finalCallsTool {
-				if err == nil || !strings.Contains(err.Error(), "tool rounds exceeded") || len(s.History) != 1 {
+				if !errors.Is(err, ErrResponseFormat) || len(s.History) != 1 {
 					t.Fatalf("extra tool round was not rejected and rolled back: %v", err)
 				}
 			} else if err != nil || resp.Content != "done" || len(s.History) != 13 {

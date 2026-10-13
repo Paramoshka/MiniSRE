@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"mini-sre/internal/agent"
@@ -101,7 +102,25 @@ func TestProgressBeforeModelAndFallback(t *testing.T) {
 
 func TestToolMarkupNeverDeliveredOrSaved(t *testing.T) {
 	var texts []string
+	var modelCalls atomic.Int32
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ToolChoice string `json:"tool_choice"`
+			Messages   []struct{ Role, Content string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+		}
+		if modelCalls.Add(1) == 2 {
+			if req.ToolChoice != "none" || len(req.Messages) != 3 || req.Messages[2].Role != "system" {
+				t.Errorf("repair request did not disable tools or retain valid history: %+v", req)
+			}
+			for _, m := range req.Messages {
+				if strings.Contains(m.Content, "<｜｜DSML") {
+					t.Error("rejected model content reached repair request")
+				}
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"id":"broken","object":"chat.completion","model":"deepseek-flash","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"Читаю.\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"read_file\">","tool_calls":null}}]}`)
 	}))
@@ -125,8 +144,11 @@ func TestToolMarkupNeverDeliveredOrSaved(t *testing.T) {
 	if err := b.process(context.Background(), update{ID: 1, Message: privateMessage(t, 1, "check")}); err != nil {
 		t.Fatal(err)
 	}
-	if len(texts) != 2 || !strings.Contains(texts[1], "Could not complete") {
+	if len(texts) != 2 || !strings.Contains(texts[1], "Не удалось сформировать итог диагностики") || !strings.Contains(texts[1], "могли выполниться") {
 		t.Fatalf("replies: %v", texts)
+	}
+	if modelCalls.Load() != 2 {
+		t.Fatalf("model calls = %d, want one initial call and one repair", modelCalls.Load())
 	}
 	for _, text := range texts {
 		if strings.Contains(text, "DSML") {

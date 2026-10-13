@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"mini-sre/internal/agent"
 )
@@ -31,6 +32,8 @@ const DefaultSystemPrompt = "You are mini-sre, a concise SRE assistant. " +
 	"Do not claim a check succeeded when a tool reported an error. Reply in the user's language."
 
 const maxToolRounds = 5
+
+const finalAnswerPrompt = "Diagnostic checks are finished for this request. Give a concise final answer in the user's language using only the observations and tool results already collected. Distinguish confirmed facts, likely causes and checks that could not be completed. If the cause is unknown, say so. Preserve the response format required by the original system instructions, including JSON when requested; otherwise use ordinary text. Do not request or emit tool calls or DSML invocation markup."
 
 type Session struct {
 	Turn            func(context.Context, agent.Request) (*agent.Response, error)
@@ -110,14 +113,37 @@ func (s *Session) Ask(ctx context.Context, input string) (response *agent.Respon
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		resp, err := s.Turn(ctx, agent.Request{
+		req := agent.Request{
 			Messages: s.History, Tools: s.Tools, DisableToolCalls: round == maxToolRounds,
-		})
+		}
+		if req.DisableToolCalls {
+			req = s.finalRequest()
+		}
+		resp, err := s.Turn(ctx, req)
 		if err != nil {
 			return nil, err
 		}
-		if hasToolMarkup(resp.Content) {
-			return nil, errors.New("agent: model returned tool-call markup instead of structured tool calls")
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if resp == nil {
+			return nil, errors.New("agent: model returned no response")
+		}
+		if hasToolMarkup(resp.Content) || (req.DisableToolCalls && len(resp.ToolCalls) > 0) {
+			reason := "model returned tool-call markup instead of structured tool calls"
+			if !hasToolMarkup(resp.Content) {
+				reason = "model returned tool calls after tool calls were disabled"
+			}
+			resp, err = s.Turn(ctx, s.finalRequest())
+			if err != nil {
+				return nil, err
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if resp == nil || strings.TrimSpace(resp.Content) == "" || hasToolMarkup(resp.Content) || len(resp.ToolCalls) > 0 {
+				return nil, fmt.Errorf("%w: %s; final answer repair failed", ErrResponseFormat, reason)
+			}
 		}
 		s.History = append(s.History, agent.Message{
 			Role: agent.RoleAssistant, Content: resp.Content,
@@ -126,9 +152,6 @@ func (s *Session) Ask(ctx context.Context, input string) (response *agent.Respon
 		if len(resp.ToolCalls) == 0 {
 			s.trimHistory()
 			return resp, nil
-		}
-		if round == maxToolRounds {
-			break
 		}
 		for _, call := range resp.ToolCalls {
 			if err := ctx.Err(); err != nil {
@@ -151,6 +174,14 @@ func (s *Session) Ask(ctx context.Context, input string) (response *agent.Respon
 		}
 	}
 	return nil, fmt.Errorf("agent: tool rounds exceeded %d", maxToolRounds)
+}
+
+func (s *Session) finalRequest() agent.Request {
+	// Keep the final-answer instruction out of persisted conversation history.
+	messages := make([]agent.Message, len(s.History)+1)
+	copy(messages, s.History)
+	messages[len(s.History)] = agent.Message{Role: agent.RoleSystem, Content: finalAnswerPrompt}
+	return agent.Request{Messages: messages, Tools: s.Tools, DisableToolCalls: true}
 }
 
 func (s *Session) trimHistory() {

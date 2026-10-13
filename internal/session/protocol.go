@@ -1,9 +1,13 @@
 package session
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 )
+
+// ErrResponseFormat indicates that the model could not produce a valid final answer.
+var ErrResponseFormat = errors.New("agent: invalid model response format")
 
 var toolMarkup = regexp.MustCompile(`<[/]?[｜|]{1,2}DSML[｜|]{1,2}\s*(calls|tool_calls|invoke)\b`)
 

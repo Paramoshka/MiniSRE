@@ -281,6 +281,9 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart fu
 		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
 			return "Модель не ответила за отведённое время. Действия, выполненные до ошибки, могли сохраниться. Подробности — в журнале агента.", nil
 		}
+		if errors.Is(err, session.ErrResponseFormat) {
+			return "Не удалось сформировать итог диагностики: модель повторно вернула некорректный ответ. Предыдущие проверки или действия могли выполниться; я не запускал их повторно для исправления ответа. Подробности — в журнале агента.", nil
+		}
 		return "Could not complete the request. See the agent log for details.", nil
 	}
 	text := resp.Content

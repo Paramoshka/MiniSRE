@@ -113,10 +113,11 @@ failure after Telegram accepted a reply can result in a duplicate reply.
 
 For ordinary chat requests, the journal records each model call and diagnostic
 tool's start and duration, followed by state checkpoint and reply delivery
-durations. Entries include the update ID and failure status; timing entries
-omit message text, tool arguments and results. Model durations include SDK
-retries. These timings begin after the bot picks up an update and do not
-measure its time waiting in Telegram's queue. Scheduled checks do not emit
+durations. Entries include the update ID and failure status; failed tool timing
+entries also include the error text with known credentials masked and newlines
+escaped. Entries omit message text, tool arguments and successful results.
+Model durations include SDK retries. These timings begin after the bot picks up
+an update and do not measure its time waiting in Telegram's queue. Scheduled checks do not emit
 these stage timings.
 
 CLI and Telegram are independent processes sharing the same configuration and
@@ -128,13 +129,29 @@ Model timing logs include the request round, whether tool calls were disabled,
 message content or tool arguments/results. Known runtime credentials are masked
 in Telegram logs as well as tool responses.
 
-After five tool rounds, the final request retains tool schemas and sets
-`tool_choice=none`. If DeepSeek returns raw DSML invocation markup as text,
-the current turn fails with the usual error reply and is rolled back without
-saving that markup. Markdown code examples and block quotations remain valid.
-Existing history is preserved; use `/clear` after updating if an earlier reply
-saved this service markup. CLI streaming can print content before this completed
-response validation runs.
+The system prompt directs broad incident reports through a quick load/CPU,
+memory, disk-space and resource-pressure overview, then checks hypotheses based
+on the observations. A missing unit or path does not establish service absence;
+the agent can use `search_processes` to look beyond the top resource consumers.
+These instructions guide the model, rather than enforce a fixed checklist.
+
+After five tool rounds, the final request retains tool schemas, sets
+`tool_choice=none` and adds a temporary instruction to summarize observations,
+likely causes and check limitations in the user's language. This instruction is
+not saved in conversation history.
+The final instruction preserves required response formats, including the JSON
+contract used by scheduled checks.
+If the model returns raw DSML invocation markup as text in any round, or a
+structured tool call after tools are disabled, the session makes one additional
+model request for a plain-text final answer using only the last valid history.
+Calls from rejected responses are never executed; previous tools are not rerun.
+If repair also produces markup, tool calls or an empty answer, Telegram sends a
+specific error explaining that earlier checks/actions may already have occurred.
+The failed turn is rolled back without saving the rejected responses; existing
+history is preserved. Model/network errors and cancellation retain their usual
+handling. Markdown code examples and block quotations remain valid.
+Use `/clear` after updating if an earlier reply saved service markup.
+CLI streaming can print content before completed-response validation runs.
 
 ## Scheduled checks
 
