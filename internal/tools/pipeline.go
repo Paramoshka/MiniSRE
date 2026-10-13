@@ -102,7 +102,7 @@ func pipelineStageSucceeded(source string, filters []pipelineFilter, index, code
 		return false
 	}
 	if index == 0 {
-		return source == "ping_host" || source == "search_file"
+		return source == "ping_host" || source == "search_file" || source == "search_processes"
 	}
 	return filters[index-1].Type == "grep"
 }
@@ -171,6 +171,10 @@ func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (re
 		var limit int
 		cmd, _, limit, err = processCommand(args)
 		stage.HeadLines = limit + 1
+	case "search_processes":
+		var limit int
+		cmd, limit, err = processSearchCommand(args)
+		stage.HeadLines = limit
 	case "get_service_status":
 		cmd, _, err = serviceStatusCommand(args.ServiceTarget)
 	case "read_file":

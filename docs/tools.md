@@ -23,7 +23,7 @@ CLI and access to its daemon. These commands must be available in the SSH user's
 noninteractive PATH on remote hosts. Commands run as the current local or SSH
 user; the agent does not invoke `sudo`.
 
-The process probe requires `ps` from procps-ng, locally or in the SSH user's PATH.
+Process probes require `ps` and `pgrep` from procps-ng, locally or in the SSH user's PATH.
 
 File probes require GNU `sed` (with `--sandbox`), `grep`, `tail`, `readlink` and
 `stat`, locally or in the SSH user's noninteractive PATH.
@@ -54,6 +54,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `get_load_average` | none | load for 1, 5, 15 minutes and process counts |
 | `get_disk_usage` | `path`, default `/` | total, used, available bytes formatted as human-readable sizes |
 | `get_top_processes` | `sort_by`, default `memory`; `limit`, default `10` | descending ranking by RSS or lifetime-average CPU, with PID, user, CPU%, MEM%, RSS in KiB and process name |
+| `search_processes` | required `pattern`; `limit=100` | case-insensitive literal name search across all visible processes, returning PID and name |
 | `get_service_status` | required `service`; `backend`, default `systemd`; `scope`, default `system` | systemd unit state or Docker container `.State` |
 | `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes` | recent journal or container logs |
 | `read_file` | required `path`; `start_line=1`, `lines=100`, `tail=false` | read a line range or the last lines of one file |
@@ -109,6 +110,18 @@ Only processes visible to the local or SSH user are included. Full command-line
 arguments and environment variables are not requested. The report returns at
 most the selected number of complete rows, even if the lower-ranked `ps` output
 exceeds the executor's capture limit.
+
+Use `search_processes` to find a process independently of its CPU or memory
+ranking. `pattern` is a literal, case-insensitive name fragment of 1..128 bytes,
+without NUL or newlines; `limit` is 1..500 matching processes (default 100).
+The search runs before the result limit. No matches is a successful diagnostic
+result, not an execution error. Names may be limited to 15 characters, so use a
+short fragment such as `fail2ban`. Command lines and environments are not searched.
+Output states this scope and marks omitted matches when the result is limited.
+A match proves process existence, not service health or its relationship to a
+panel. Filtering `get_top_processes` cannot establish that a process is absent.
+`search_processes` is also a pipeline source; its match limit applies before
+downstream filters, and exit code 1 means no matches.
 
 ## Files
 

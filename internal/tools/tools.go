@@ -41,8 +41,13 @@ func Specs() []Spec {
 		},
 		{
 			Name:        "get_top_processes",
-			Description: "List visible processes sorted by memory (RSS) or CPU, descending. Shows PID, user, CPU%, MEM%, RSS in KiB and executable name, without command-line arguments. CPU% is a lifetime average, not an interval measurement, and can exceed 100% on multiple cores. Defaults: host_id=local, sort_by=memory, limit=10.",
+			Description: "Find resource consumers among visible processes sorted by memory (RSS) or CPU, descending. Only the top rows are returned; use search_processes to find a process by name. Shows PID, user, CPU%, MEM%, RSS in KiB and executable name, without command-line arguments. CPU% is a lifetime average, not an interval measurement, and can exceed 100% on multiple cores. Defaults: host_id=local, sort_by=memory, limit=10.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"sort_by":{"type":"string","enum":["memory","cpu"],"description":"Sort descending by resident memory or lifetime-average CPU; default memory."},"limit":{"type":"integer","minimum":1,"maximum":50,"description":"Maximum number of processes; default 10."}},"additionalProperties":false}`),
+		},
+		{
+			Name:        "search_processes",
+			Description: "Search all visible process names by a literal fragment, ignoring case, independently of CPU/RSS rankings. Returns PID and name; no matches is a diagnostic result, not an execution error. Names may be limited to 15 characters: use a short fragment. Does not search command lines or environments. A matching process proves existence, not service health. Defaults: host_id=local, limit=100; at most 500 matches returned.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"pattern":{"type":"string","minLength":1,"maxLength":128,"description":"Literal process name fragment, case insensitive; at most 128 bytes, no NUL or newlines. Use a short fragment because names may be limited to 15 characters."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Maximum matching processes returned; default 100."}},"required":["pattern"],"additionalProperties":false}`),
 		},
 		{
 			Name: "get_service_status", Description: "Read systemd service or Docker container state. backend defaults to systemd; scope defaults to system. Use scope=user for user systemd services. Does not restart services.",
@@ -140,6 +145,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.DiskUsage(ctx, args.HostID, args.Path)
 			case "get_top_processes":
 				out, err = t.TopProcesses(ctx, args)
+			case "search_processes":
+				out, err = t.SearchProcesses(ctx, args)
 			case "get_service_status":
 				out, err = t.ServiceStatus(ctx, args.HostID, args.ServiceTarget)
 			case "get_service_logs":

@@ -93,10 +93,49 @@ func TestPipelineErrorsAndStreamModes(t *testing.T) {
 	}
 }
 
+func TestProcessSearchPipelineLocalAndSSH(t *testing.T) {
+	runner := fileSSHRunner(t)
+	for _, host := range []string{"local", "web"} {
+		for _, tc := range []struct {
+			name, stdout, exit string
+			wantErr            bool
+		}{
+			{"matches", "1 worker\n2 worker\n", "0", false},
+			{"no matches", "", "1", false},
+			{"command failure", "", "2", true},
+		} {
+			t.Run(host+"/"+tc.name, func(t *testing.T) {
+				fakeCommand(t, "pgrep", tc.stdout, "", tc.exit)
+				raw, err := json.Marshal(map[string]any{
+					"host_id": host,
+					"source":  map[string]any{"tool": "search_processes", "args": map[string]any{"pattern": "worker", "limit": 1}},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				out, err := Registry(runner)["run_pipeline"](context.Background(), raw)
+				if (err != nil) != tc.wantErr {
+					t.Fatalf("out=%q err=%v", out, err)
+				}
+				if err != nil {
+					out = err.Error()
+				}
+				if !strings.Contains(out, "stage[0]=search_processes exit_code="+tc.exit) || strings.Contains(out, "2 worker") {
+					t.Fatalf("search status or match limit lost: %q", out)
+				}
+				if tc.exit == "0" && !strings.Contains(out, "1 worker") {
+					t.Fatalf("matching process missing: %q", out)
+				}
+			})
+		}
+	}
+}
+
 func TestPipelineSourcesUseExistingPreparation(t *testing.T) {
 	fixture := fileFixture(t, "source.conf", "one\nerror\n")
 	for _, tc := range []struct{ name, program, raw string }{
 		{"get_disk_usage", "df", `{}`}, {"get_top_processes", "ps", `{"limit":1}`},
+		{"search_processes", "pgrep", `{"pattern":"worker"}`},
 		{"get_service_status", "systemctl", `{"service":"nginx"}`}, {"get_service_logs", "journalctl", `{}`},
 		{"get_ip_rules", "ip", `{}`}, {"get_ip_routes", "ip", `{"table":"default"}`},
 		{"get_route_to", "ip", `{"destination":"127.0.0.1","mark":42}`}, {"ping_host", "ping", `{"destination":"127.0.0.1"}`},

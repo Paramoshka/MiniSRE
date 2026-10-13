@@ -3,7 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -110,5 +113,104 @@ func TestTopProcessesLocally(t *testing.T) {
 	}
 	if _, err := call(context.Background(), json.RawMessage(`{"host_id":"missing"}`)); err == nil {
 		t.Fatal("unknown SSH host accepted")
+	}
+}
+
+func TestSearchProcessesLocalAndSSH(t *testing.T) {
+	runner := fileSSHRunner(t)
+	for _, host := range []string{"local", "web"} {
+		t.Run(host, func(t *testing.T) {
+			var rows strings.Builder
+			for pid := 1; pid <= 60; pid++ {
+				fmt.Fprintf(&rows, "%d worker\n", pid)
+			}
+			argsFile := fakeCommand(t, "pgrep", rows.String(), "", "0")
+			raw, err := json.Marshal(map[string]any{"host_id": host, "pattern": "-worker'.[x]$"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := Registry(runner)["search_processes"](context.Background(), raw)
+			if err != nil || !strings.Contains(out, "60 worker") || strings.Count(out, " worker\n") != 60 {
+				t.Fatalf("search was limited by resource ranking: %q, %v", out, err)
+			}
+			args, err := os.ReadFile(argsFile)
+			if err != nil || string(args) != "-i\n-l\n--\n-worker'\\.\\[x\\]\\$\n" {
+				t.Fatalf("literal pattern was not safely passed to pgrep: %q, %v", args, err)
+			}
+		})
+	}
+}
+
+func TestSearchProcessesResults(t *testing.T) {
+	for _, tc := range []struct {
+		name, stdout, stderr, exit, raw, want string
+		wantErr                               bool
+	}{
+		{"limit", "1 worker\n2 worker\n", "", "0", `{"pattern":"worker","limit":1}`, "additional matches may be omitted", false},
+		{"default limit", strings.Repeat("1 worker\n", 101), "", "0", `{"pattern":"worker"}`, "additional matches may be omitted", false},
+		{"no matches", "", "", "1", `{"pattern":"worker"}`, "No visible process names matched", false},
+		{"no matches with warning", "", "name may be truncated\n", "1", `{"pattern":"worker"}`, "name may be truncated", false},
+		{"command error", "", "permission denied ssh-test-password", "2", `{"pattern":"worker"}`, "permission denied [redacted]", true},
+		{"empty successful output", "", "", "0", `{"pattern":"worker"}`, "no complete process rows", true},
+		{"truncated matches", strings.Repeat("1 worker\n", 8000), "", "0", `{"pattern":"worker","limit":500}`, "additional matches may be omitted", false},
+		{"truncated first row", strings.Repeat("x", 70000), "", "0", `{"pattern":"worker"}`, "no complete process rows", true},
+		{"redacted result", "1 ssh-test-password\n", "", "0", `{"pattern":"worker"}`, "1 [redacted]", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeCommand(t, "pgrep", tc.stdout, tc.stderr, tc.exit)
+			runner := &remote.Runner{Config: config.Config{Hosts: map[string]config.Host{"web": {Password: "ssh-test-password"}}}}
+			out, err := Registry(runner)["search_processes"](context.Background(), json.RawMessage(tc.raw))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("result=%q err=%v", out, err)
+			}
+			if err != nil {
+				out = err.Error()
+			}
+			if !strings.Contains(out, tc.want) || strings.Contains(out, "ssh-test-password") {
+				t.Fatalf("unexpected result: %q", out)
+			}
+		})
+	}
+}
+
+func TestSearchProcessesRejectsArgumentsBeforeExecution(t *testing.T) {
+	argsFile := fakeCommand(t, "pgrep", "", "", "0")
+	call := Registry(&remote.Runner{})["search_processes"]
+	for _, raw := range []string{
+		`{}`, `{"pattern":""}`, `{"pattern":"x\u0000"}`, `{"pattern":"x\n"}`, `{"pattern":"x\r"}`,
+		`{"pattern":"` + strings.Repeat("x", 129) + `"}`, `{"pattern":"` + strings.Repeat("я", 65) + `"}`,
+		`{"pattern":"x","limit":0}`, `{"pattern":"x","limit":501}`, `{"pattern":"x","limit":1.5}`,
+		`{"pattern":"x","command":"kill"}`, `null`, `[]`, `{bad`,
+	} {
+		if _, err := call(context.Background(), json.RawMessage(raw)); err == nil {
+			t.Fatalf("invalid arguments accepted: %s", raw)
+		}
+	}
+	if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+		t.Fatal("pgrep ran before validation")
+	}
+}
+
+func TestSearchProcessesRealLiteralMatch(t *testing.T) {
+	sleepPath, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep is not available")
+	}
+	data, err := os.ReadFile(sleepPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "sre.test[x]")
+	if err := os.WriteFile(path, data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(path, "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	out, err := Registry(&remote.Runner{})["search_processes"](context.Background(), json.RawMessage(`{"pattern":"SRE.test["}`))
+	if err != nil || !strings.Contains(out, fmt.Sprintf("%d sre.test[x]", cmd.Process.Pid)) {
+		t.Fatalf("real literal, case-insensitive lookup failed: %q, %v", out, err)
 	}
 }

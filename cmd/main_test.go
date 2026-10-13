@@ -122,7 +122,7 @@ func TestConfiguredAgentUsesProbesWithoutExposingCredentials(t *testing.T) {
 					Function struct{ Name string } `json:"function"`
 				} `json:"tools"`
 			}
-			if err := json.Unmarshal(body, &req); err != nil || len(req.Tools) != 23 {
+			if err := json.Unmarshal(body, &req); err != nil || len(req.Tools) != 24 {
 				t.Errorf("tool definitions missing: %v, %d", err, len(req.Tools))
 			}
 			io.WriteString(w, `{"id":"first","choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"id":"hosts","type":"function","function":{"name":"list_hosts","arguments":"{}"}},{"id":"la","type":"function","function":{"name":"get_load_average","arguments":"{}"}},{"id":"disk","type":"function","function":{"name":"get_disk_usage","arguments":"{\"path\":\"/\"}"}},{"id":"systemd","type":"function","function":{"name":"get_service_status","arguments":"{\"service\":\"nginx\"}"}},{"id":"docker","type":"function","function":{"name":"get_service_status","arguments":"{\"service\":\"web\",\"backend\":\"docker\"}"}},{"id":"journal","type":"function","function":{"name":"get_service_logs","arguments":"{}"}},{"id":"container_logs","type":"function","function":{"name":"get_service_logs","arguments":"{\"service\":\"web\",\"backend\":\"docker\"}"}},{"id":"processes","type":"function","function":{"name":"get_top_processes","arguments":"{\"sort_by\":\"cpu\",\"limit\":3}"}}]}}]}`)
