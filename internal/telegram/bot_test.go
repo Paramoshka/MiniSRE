@@ -78,6 +78,56 @@ func TestRequestTimingLogs(t *testing.T) {
 	}
 }
 
+func TestToolErrorLogs(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", `fake-api-secret"quoted`)
+	for _, toolErr := range []error{nil, errors.New("command on Germay: permission denied\nfake-api-secret\"quoted secret-token")} {
+		t.Run(fmt.Sprint(toolErr != nil), func(t *testing.T) {
+			var logs bytes.Buffer
+			bot, err := New("secret-token", func() []int64 { return []int64{1} }, func() *session.Session {
+				return &session.Session{
+					Turn: func(_ context.Context, req agent.Request) (*agent.Response, error) {
+						if req.Messages[len(req.Messages)-1].Role == agent.RoleUser {
+							return &agent.Response{ToolCalls: []agent.ToolCall{{ID: "probe", Name: "get_service_status", Arguments: "private-arguments"}}}, nil
+						}
+						result := req.Messages[len(req.Messages)-1].Content
+						if toolErr != nil {
+							if result != "error: "+toolErr.Error() {
+								t.Fatal("tool error was not passed to the model")
+							}
+						} else if result != "private-result" {
+							t.Fatal("tool result was changed")
+						}
+						return &agent.Response{Content: "private-answer"}, nil
+					},
+					RunTool: func(context.Context, agent.ToolCall) (string, error) {
+						return "private-result", toolErr
+					},
+				}
+			}, &logs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := bot.handle(context.Background(), privateMessage(t, 1, "private-input"), 42, func() {}); err != nil {
+				t.Fatal(err)
+			}
+			output := logs.String()
+			if !strings.Contains(output, `telegram: update=42 stage=tool name="get_service_status" duration=`) {
+				t.Fatalf("tool metadata missing: %s", output)
+			}
+			if toolErr != nil {
+				if !strings.Contains(output, `failed=true error="command on Germay: permission denied\n[redacted] [redacted]"`) {
+					t.Fatalf("escaped and redacted tool error missing: %s", output)
+				}
+			} else if !strings.Contains(output, "failed=false") || strings.Contains(output, " error=") {
+				t.Fatalf("unexpected error for successful tool: %s", output)
+			}
+			if strings.Contains(output, "private-") || strings.Contains(output, "fake-api-secret") || strings.Contains(output, "secret-token") {
+				t.Fatalf("private content leaked: %s", output)
+			}
+		})
+	}
+}
+
 type sentMessage struct {
 	ChatID    int64           `json:"chat_id"`
 	Text      string          `json:"text"`

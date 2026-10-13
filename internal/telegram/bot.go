@@ -263,7 +263,11 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart fu
 			started := time.Now()
 			b.log(fmt.Errorf("telegram: update=%d stage=tool name=%q started", updateID, call.Name))
 			out, err := runTool(ctx, call)
-			b.log(fmt.Errorf("telegram: update=%d stage=tool name=%q duration=%s failed=%t", updateID, call.Name, time.Since(started), err != nil))
+			entry := fmt.Sprintf("telegram: update=%d stage=tool name=%q duration=%s failed=%t", updateID, call.Name, time.Since(started), err != nil)
+			if err != nil {
+				entry += fmt.Sprintf(" error=%q", remote.RedactRuntimeSecrets(err.Error(), b.token))
+			}
+			b.log(errors.New(entry))
 			return out, err
 		}
 	}
