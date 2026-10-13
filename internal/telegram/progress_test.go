@@ -93,7 +93,7 @@ func TestProgressBeforeModelAndFallback(t *testing.T) {
 			if strings.Join(methods, " ") != want || calls != 1 {
 				t.Fatalf("methods=%v calls=%d", methods, calls)
 			}
-			if scenario == "model failure" && !strings.Contains(texts[1], "Could not complete") {
+			if scenario == "model failure" && !strings.Contains(texts[1], "Не удалось выполнить запрос") {
 				t.Fatal("status left unfinished")
 			}
 		})

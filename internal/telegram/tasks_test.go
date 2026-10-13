@@ -74,7 +74,7 @@ func TestTaskCommandsOwnershipAndDuplicateUpdate(t *testing.T) {
 	}
 	for _, verb := range []string{"show", "pause", "resume", "delete"} {
 		reply := s.handleCommand(taskCommand{ownerID: 2, chatID: 2, input: "/task " + verb + " " + task.ID})
-		if reply.err != nil || reply.text != "Task not found." || !task.Enabled {
+		if reply.err != nil || reply.text != "Задача не найдена." || !task.Enabled {
 			t.Fatalf("other owner accessed task: %s %+v", verb, reply)
 		}
 	}
@@ -90,7 +90,7 @@ func TestTaskCommandsOwnershipAndDuplicateUpdate(t *testing.T) {
 			input += " " + task.ID
 		}
 		reply := s.handleCommand(taskCommand{ownerID: 1, chatID: 1, input: input})
-		if reply.err != nil || reply.text == "Task not found." {
+		if reply.err != nil || reply.text == "Задача не найдена." {
 			t.Fatalf("command: %s %+v", verb, reply)
 		}
 		if verb == "pause" && task.Enabled || verb == "resume" && !task.Enabled {
@@ -224,7 +224,7 @@ func TestTaskCorruptFileIsNotOverwritten(t *testing.T) {
 		t.Fatal("bad file replaced valid schedules")
 	}
 	reply := s.handleCommand(taskCommand{ownerID: 1, chatID: 1, input: "/task delete " + s.file.Tasks[0].ID})
-	if reply.err != nil || !strings.Contains(reply.text, "invalid") {
+	if reply.err != nil || !strings.Contains(reply.text, "Файл задач недоступен") {
 		t.Fatalf("corrupt file command: %+v", reply)
 	}
 	if err := b.UseTasks(s.path); err == nil {
@@ -457,7 +457,7 @@ func TestTaskLimitIncludesPausedTasksAndAllOwners(t *testing.T) {
 	}
 	for _, owner := range []int64{1, 2} {
 		reply := s.handleCommand(taskCommand{ownerID: owner, chatID: owner, input: "/task add 1m 1h Another task"})
-		if reply.err != nil || !strings.Contains(reply.text, "MVP limit reached: 5") ||
+		if reply.err != nil || !strings.Contains(reply.text, "Достигнут лимит MVP: 5") ||
 			!strings.Contains(reply.text, "/task delete <id>") || len(s.file.Tasks) != maxScheduledTasks {
 			t.Fatalf("owner %d bypassed limit: %+v", owner, reply)
 		}

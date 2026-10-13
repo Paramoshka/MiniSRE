@@ -15,6 +15,11 @@ import (
 
 const maxScheduledTasks = 5
 
+var (
+	errCheckInterval  = errors.New("The check interval must be at least one minute, for example 5m or 1h.")
+	errReportInterval = errors.New("The report interval must be at least the check interval.")
+)
+
 type scheduledTask struct {
 	ID          string    `json:"id"`
 	OwnerID     int64     `json:"owner_id"`
@@ -109,7 +114,7 @@ func (b *Bot) UseTasks(path string) error {
 		task.revision = s.revision
 		if task.State.Running {
 			task.State.Running = false
-			task.State.LastResult = taskOutcome{"unknown", "The previous check was interrupted."}
+			task.State.LastResult = taskOutcome{"unknown", b.text("Предыдущая проверка была прервана.", "The previous check was interrupted.")}
 			task.State.Counts.Interrupted++
 			if task.State.NextRun.After(now) {
 				task.State.NextRun = now
@@ -163,11 +168,11 @@ func decodeTaskFile(data []byte) (taskFile, error) {
 func taskIntervals(every, report string) (time.Duration, time.Duration, error) {
 	check, err := time.ParseDuration(every)
 	if err != nil || check < time.Minute {
-		return 0, 0, errors.New("The check interval must be at least one minute, for example 5m or 1h.")
+		return 0, 0, errCheckInterval
 	}
 	reports, err := time.ParseDuration(report)
 	if err != nil || reports < check {
-		return 0, 0, errors.New("The report interval must be at least the check interval.")
+		return 0, 0, errReportInterval
 	}
 	return check, reports, nil
 }

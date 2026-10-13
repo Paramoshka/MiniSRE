@@ -37,12 +37,13 @@ type taskDelivery struct {
 func (b *Bot) checkTask(ctx context.Context, task scheduledTask) taskOutcome {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	language := b.currentLanguage()
 	if !slices.Contains(b.users(), task.OwnerID) {
-		return taskOutcome{"unknown", "Task owner access has been revoked."}
+		return taskOutcome{"unknown", localized(language, "Доступ владельца задачи отозван.", "Task owner access has been revoked.")}
 	}
 	s := b.newSession()
 	s.SystemPrompt = session.DefaultSystemPrompt + scheduledPrompt
-	s.Language = b.currentLanguage()
+	s.Language = language
 	allowedTools := make([]agent.Tool, 0, len(s.Tools))
 	for _, tool := range s.Tools {
 		if tool.Name != "lab_deploy" && tool.Name != "lab_destroy" {
@@ -76,7 +77,7 @@ func (b *Bot) checkTask(ctx context.Context, task scheduledTask) taskOutcome {
 	response, err := s.Ask(ctx, task.Prompt)
 	if err != nil {
 		b.log(err)
-		return taskOutcome{"unknown", "Could not run the check. See the agent log for details."}
+		return taskOutcome{"unknown", localized(language, "Не удалось выполнить проверку. Подробности — в журнале агента.", "Could not run the check. See the agent log for details.")}
 	}
 	var result taskOutcome
 	dec := json.NewDecoder(strings.NewReader(response.Content))
@@ -84,10 +85,10 @@ func (b *Bot) checkTask(ctx context.Context, task scheduledTask) taskOutcome {
 	var extra any
 	if err := dec.Decode(&result); err != nil || dec.Decode(&extra) != io.EOF ||
 		!validTaskStatus(result.Status, false) || strings.TrimSpace(result.Summary) == "" {
-		return taskOutcome{"unknown", "The model returned an invalid check result."}
+		return taskOutcome{"unknown", localized(language, "Модель вернула некорректный результат проверки.", "The model returned an invalid check result.")}
 	}
 	if !probeSucceeded || (probeFailed && result.Status == "ok") {
-		return taskOutcome{"unknown", "The tools did not confirm the check result. " + result.Summary}
+		return taskOutcome{"unknown", localized(language, "Инструменты не подтвердили результат проверки. ", "The tools did not confirm the check result. ") + result.Summary}
 	}
 	return result
 }

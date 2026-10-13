@@ -91,6 +91,20 @@ go run ./cmd -config hosts.yaml
 `local` always means the machine running this process; it is available without
 configuration and cannot be redefined. Other IDs come from the `hosts` mapping.
 
+Set the response language at the root of this file:
+
+```yaml
+language: ru # ru or en; default ru, also when no config file is supplied.
+```
+
+This setting controls model answers in CLI and Telegram, scheduled check
+summaries, and predefined Telegram error messages. It overrides the language of
+the request and earlier conversation. A change applies to the next request or
+scheduled check without restarting or clearing history. The current request
+keeps its selected language. Diagnostic command output, journal entries and
+machine-readable JSON keys/status values retain their original form. Other
+values and an explicitly empty string are rejected.
+
 Optional `lab_hosts: [lab-1]` enables the separately installed lab helper for
 selected existing IDs (or `local`). It defaults to an empty list; duplicates
 and unknown IDs are rejected. See [containerlab setup](containerlab.md).
@@ -105,8 +119,8 @@ The file must contain the server's independently verified host key; unknown or
 changed host keys are rejected. The agent does not add keys automatically.
 
 With `-config`, the YAML is watched and reloaded after saving, including when an
-editor atomically replaces the file. Hosts, `known_hosts` and Telegram allowed
-user IDs are published together. Invalid YAML, a temporarily missing file, or an
+editor atomically replaces the file. Language, hosts, `known_hosts` and Telegram
+allowed user IDs are published together. Invalid YAML, a temporarily missing file, or an
 empty Telegram allowlist in bot mode is logged without replacing the last valid
 configuration. A fatal watcher error stops the process. Each probe uses one
 configuration snapshot for its connection and password redaction; the next probe

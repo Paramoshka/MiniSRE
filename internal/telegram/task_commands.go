@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -52,7 +53,7 @@ func (s *taskScheduler) handleCommand(cmd taskCommand) taskCommandReply {
 	}
 	if err := s.reload(); err != nil {
 		s.bot.log(err)
-		return taskCommandReply{text: "The tasks file is unavailable or invalid. Fix the file; it has not been overwritten."}
+		return taskCommandReply{text: s.bot.text("Файл задач недоступен или некорректен. Исправьте файл; он не был перезаписан.", "The tasks file is unavailable or invalid. Fix the file; it has not been overwritten.")}
 	}
 	last := s.file.LastCommand
 	if cmd.updateID != 0 && last.UpdateID == cmd.updateID && last.OwnerID == cmd.ownerID &&
@@ -89,7 +90,7 @@ func (s *taskScheduler) editCommand(cmd taskCommand) (string, bool) {
 		}
 		task := s.find(parts[2])
 		if task == nil || task.OwnerID != cmd.ownerID {
-			return "Task not found.", false
+			return s.bot.text("Задача не найдена.", "Task not found."), false
 		}
 		if parts[1] == "show" {
 			return fmt.Sprintf("Task %s · enabled: %t\n%s\nCheck: %s; report: %s\nNext check: %s\nLast result: %s\n%s", task.ID, task.Enabled, task.Prompt, task.Every, task.ReportEvery, task.State.NextRun.Format(time.RFC3339), task.State.LastResult.Status, task.State.LastResult.Summary), false
@@ -121,10 +122,16 @@ func (s *taskScheduler) addTask(cmd taskCommand, parts []string) (string, bool) 
 	}
 	checkInterval, reportInterval, err := taskIntervals(parts[2], parts[3])
 	if err != nil {
+		if errors.Is(err, errCheckInterval) {
+			return s.bot.text("Интервал проверки должен быть не меньше минуты, например 5m или 1h.", err.Error()), false
+		}
+		if errors.Is(err, errReportInterval) {
+			return s.bot.text("Интервал отчёта должен быть не меньше интервала проверки.", err.Error()), false
+		}
 		return err.Error(), false
 	}
 	if len(s.file.Tasks) >= maxScheduledTasks {
-		return fmt.Sprintf("MVP limit reached: %d tasks across the bot, including paused tasks. /task list — view your tasks; /task delete <id> — delete a task and free a slot.", maxScheduledTasks), false
+		return fmt.Sprintf(s.bot.text("Достигнут лимит MVP: %d задач на бота, включая приостановленные. /task list — список задач; /task delete <id> — удалить задачу и освободить место.", "MVP limit reached: %d tasks across the bot, including paused tasks. /task list — view your tasks; /task delete <id> — delete a task and free a slot."), maxScheduledTasks), false
 	}
 	// Cut the four command words without changing whitespace inside the prompt.
 	prompt := cmd.input

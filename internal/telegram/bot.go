@@ -227,9 +227,10 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart fu
 		return "", nil
 	}
 	input := strings.TrimSpace(m.Text)
+	language := b.currentLanguage()
 	if input == "/task" || strings.HasPrefix(input, "/task ") || strings.HasPrefix(input, "/task\n") || strings.HasPrefix(input, "/task\t") {
 		if b.tasks == nil {
-			return "Scheduled tasks are not enabled for this process.", nil
+			return localized(language, "Плановые задачи не включены для этого процесса.", "Scheduled tasks are not enabled for this process."), nil
 		}
 		return b.tasks.command(ctx, m, updateID, input)
 	}
@@ -243,7 +244,7 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart fu
 		return "History cleared.", nil
 	}
 	if strings.HasPrefix(input, "/") {
-		return "Unknown command. /start — help, /clear — reset history.", nil
+		return localized(language, "Неизвестная команда. /start — справка, /clear — очистить историю.", "Unknown command. /start — help, /clear — reset history."), nil
 	}
 	onStart()
 	s := b.sessions[m.Chat.ID]
@@ -252,7 +253,7 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart fu
 		s.MaxHistoryTurns = maxHistoryTurns
 		b.sessions[m.Chat.ID] = s
 	}
-	s.Language = b.currentLanguage()
+	s.Language = language
 	turn, runTool := s.Turn, s.RunTool
 	defer func() {
 		s.Turn, s.RunTool = turn, runTool
@@ -293,16 +294,20 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart fu
 		}
 		var netErr net.Error
 		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
-			return "Модель не ответила за отведённое время. Действия, выполненные до ошибки, могли сохраниться. Подробности — в журнале агента.", nil
+			return localized(language,
+				"Модель не ответила за отведённое время. Действия, выполненные до ошибки, могли сохраниться. Подробности — в журнале агента.",
+				"The model did not respond within the allotted time. Actions completed before the error may have persisted. See the agent log for details."), nil
 		}
 		if errors.Is(err, session.ErrResponseFormat) {
-			return "Не удалось сформировать итог диагностики: модель повторно вернула некорректный ответ. Предыдущие проверки или действия могли выполниться; я не запускал их повторно для исправления ответа. Подробности — в журнале агента.", nil
+			return localized(language,
+				"Не удалось сформировать итог диагностики: модель повторно вернула некорректный ответ. Предыдущие проверки или действия могли выполниться; я не запускал их повторно для исправления ответа. Подробности — в журнале агента.",
+				"Could not produce the diagnostic summary: the model returned an invalid response again. Earlier checks or actions may have completed; they were not rerun to repair the response. See the agent log for details."), nil
 		}
-		return "Could not complete the request. See the agent log for details.", nil
+		return localized(language, "Не удалось выполнить запрос. Подробности — в журнале агента.", "Could not complete the request. See the agent log for details."), nil
 	}
 	text := resp.Content
 	if strings.TrimSpace(text) == "" {
-		text = "The model returned an empty response. Try a more specific request."
+		text = localized(language, "Модель вернула пустой ответ. Попробуйте уточнить запрос.", "The model returned an empty response. Try a more specific request.")
 	}
 	return text, nil
 }

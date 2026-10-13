@@ -111,6 +111,11 @@ func TestWatchReloadsWholeConfigAndKeepsSnapshots(t *testing.T) {
 	await(t, func() bool { return strings.Count(logs.text(), "reload rejected") == 3 })
 	write(path, updated)
 	await(t, func() bool { return live.Current().Telegram.AllowedUserIDs[0] == 2 })
+	write(path, strings.Replace(updated, "language: en", "language: private-invalid-language", 1))
+	await(t, func() bool { return strings.Count(logs.text(), "reload rejected") == 4 })
+	if live.Current().Language != "en" || strings.Contains(logs.text(), "private-invalid-language") {
+		t.Fatal("invalid language replaced the active config or leaked its value")
+	}
 	if ctx.Err() != nil {
 		t.Fatalf("recoverable config error stopped watcher: %v", context.Cause(ctx))
 	}

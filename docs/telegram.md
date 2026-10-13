@@ -10,6 +10,11 @@ Create a bot, set its token and put your numeric Telegram user ID in
 `telegram.allowed_user_ids` in the YAML file (not your username). Incoming Bot
 API messages carry this ID in `message.from.id`.
 
+Set `language: ru` or `language: en` at the root of `hosts.yaml` to select the
+language of model answers, scheduled check summaries and predefined error
+messages. The default is Russian. Saving a valid change applies it to the next
+request without clearing history; see [response language](configuration.md#hosts-and-ssh).
+
 ```bash
 export TELEGRAM_BOT_TOKEN='your-bot-token'
 go run ./cmd -config hosts.yaml -telegram
