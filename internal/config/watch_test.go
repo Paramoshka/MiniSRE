@@ -51,8 +51,8 @@ func TestWatchReloadsWholeConfigAndKeepsSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	initial := "known_hosts: old_keys\nhosts:\n  old:\n    address: localhost\n    user: sre\n    password: old-secret\ntelegram:\n  allowed_user_ids: [1]\n"
-	updated := "known_hosts: new_keys\nhosts:\n  new:\n    address: localhost\n    user: sre\n    password: new-secret\ntelegram:\n  allowed_user_ids: [2]\n"
+	initial := "language: ru\nknown_hosts: old_keys\nhosts:\n  old:\n    address: localhost\n    user: sre\n    password: old-secret\ntelegram:\n  allowed_user_ids: [1]\n"
+	updated := "language: en\nknown_hosts: new_keys\nhosts:\n  new:\n    address: localhost\n    user: sre\n    password: new-secret\ntelegram:\n  allowed_user_ids: [2]\n"
 	write(path, initial)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
@@ -80,10 +80,10 @@ func TestWatchReloadsWholeConfigAndKeepsSnapshots(t *testing.T) {
 	write(path, updated)
 	await(t, func() bool { return live.Current().Telegram.AllowedUserIDs[0] == 2 })
 	cfg := live.Current()
-	if cfg.KnownHosts != filepath.Join(dir, "new_keys") || cfg.Hosts["new"].Password != "new-secret" || len(cfg.Hosts) != 1 {
+	if cfg.Language != "en" || cfg.KnownHosts != filepath.Join(dir, "new_keys") || cfg.Hosts["new"].Password != "new-secret" || len(cfg.Hosts) != 1 {
 		t.Fatalf("partial reload: %+v", cfg)
 	}
-	if old.Hosts["old"].Password != "old-secret" || old.Telegram.AllowedUserIDs[0] != 1 {
+	if old.Language != "ru" || old.Hosts["old"].Password != "old-secret" || old.Telegram.AllowedUserIDs[0] != 1 {
 		t.Fatal("old snapshot was mutated")
 	}
 

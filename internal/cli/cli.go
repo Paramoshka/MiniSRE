@@ -27,6 +27,7 @@ type App struct {
 	Out          io.Writer
 	Err          io.Writer
 	SystemPrompt string
+	Language     func() string
 	Stream       bool
 	Reasoning    bool
 	Tools        []agent.Tool
@@ -111,6 +112,9 @@ func scanLine(ctx context.Context, scanner *bufio.Scanner) (string, error) {
 
 func (a *App) Ask(ctx context.Context, input string) error {
 	a.ensureSession()
+	if a.Language != nil {
+		a.session.Language = a.Language()
+	}
 	_, err := a.session.Ask(ctx, input)
 	return err
 }

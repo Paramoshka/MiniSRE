@@ -20,6 +20,7 @@ type Host struct {
 }
 
 type Config struct {
+	Language   string          `yaml:"language"`
 	KnownHosts string          `yaml:"known_hosts"`
 	Hosts      map[string]Host `yaml:"hosts"`
 	LabHosts   []string        `yaml:"lab_hosts"`
@@ -29,7 +30,7 @@ type Config struct {
 }
 
 func Load(path string) (Config, error) {
-	var cfg Config
+	cfg := Config{Language: "ru"}
 	if path == "" {
 		return cfg, nil
 	}
@@ -47,6 +48,9 @@ func Load(path string) (Config, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		return Config{}, errors.New("config: expected one YAML document")
+	}
+	if cfg.Language != "ru" && cfg.Language != "en" {
+		return Config{}, errors.New("config: language must be ru or en")
 	}
 	base, err := filepath.Abs(filepath.Dir(path))
 	if err != nil {

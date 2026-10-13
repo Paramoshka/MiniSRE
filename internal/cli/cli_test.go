@@ -97,6 +97,28 @@ func testClient(t *testing.T, rec *recorder, body string, contentType string) *a
 	return client
 }
 
+func TestResponseLanguageReloadReachesModel(t *testing.T) {
+	var rec recorder
+	language := "ru"
+	app := &App{
+		Client: testClient(t, &rec, streamBody, "text/event-stream"),
+		Out:    io.Discard, Err: io.Discard, Stream: true,
+		Language: func() string { return language },
+	}
+	if err := app.Ask(context.Background(), "check"); err != nil {
+		t.Fatal(err)
+	}
+	language = "en"
+	if err := app.Ask(context.Background(), "проверь ещё раз"); err != nil {
+		t.Fatal(err)
+	}
+	requests := rec.snapshot()
+	if len(requests) != 2 || !strings.Contains(requests[0][0].Content, "in Russian") ||
+		!strings.Contains(requests[1][0].Content, "in English") || strings.Contains(requests[1][0].Content, "in Russian") || len(requests[1]) != 4 {
+		t.Fatalf("language reload was not propagated with history: %+v", requests)
+	}
+}
+
 func TestAskStreamsAnswer(t *testing.T) {
 	var rec recorder
 	client := testClient(t, &rec, streamBody, "text/event-stream")

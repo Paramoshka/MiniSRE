@@ -138,3 +138,31 @@ func TestRestoreRejectsIncompleteOrUnmatchedToolHistory(t *testing.T) {
 		}
 	}
 }
+
+func TestLanguageChangesWithoutClearingHistory(t *testing.T) {
+	s := &Session{SystemPrompt: "Return JSON with status and summary.", Language: "ru"}
+	for _, language := range []string{"ru", "en", "ru"} {
+		s.Language = language
+		s.Turn = func(_ context.Context, req agent.Request) (*agent.Response, error) {
+			want, unwanted := "in Russian", "in English"
+			if language == "en" {
+				want, unwanted = unwanted, want
+			}
+			prompt := req.Messages[0].Content
+			if !strings.HasPrefix(prompt, s.SystemPrompt) || !strings.Contains(prompt, want) || strings.Contains(prompt, unwanted) || strings.Count(prompt, "Always write") != 1 {
+				t.Fatalf("language instruction not updated: %q", prompt)
+			}
+			return &agent.Response{Content: `{"status":"unknown","summary":"test"}`}, nil
+		}
+		if _, err := s.Ask(context.Background(), "check"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(s.History) != 7 {
+		t.Fatal("language change cleared conversation history")
+	}
+	restored := &Session{Language: "en", SystemPrompt: s.SystemPrompt}
+	if err := restored.Restore(s.History[1:]); err != nil || !strings.Contains(restored.History[0].Content, "in English") {
+		t.Fatalf("language not applied on restore: %v", err)
+	}
+}

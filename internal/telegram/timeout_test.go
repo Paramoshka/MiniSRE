@@ -47,6 +47,7 @@ func TestModelTimeoutAfterToolRounds(t *testing.T) {
 				t.Fatal(err)
 			}
 			s := b.newSession()
+			s.Language = "ru"
 			previous := []agent.Message{{Role: agent.RoleUser, Content: "previous"}, {Role: agent.RoleAssistant, Content: "answer"}}
 			if err := s.Restore(previous); err != nil {
 				t.Fatal(err)

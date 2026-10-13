@@ -88,6 +88,7 @@ func run() (err error) {
 			return err
 		}
 		statePath := *telegramState
+		bot.SetLanguage(func() string { return hostConfig.Current().Language })
 		if statePath == "" {
 			statePath, err = telegram.DefaultStatePath()
 			if err != nil {
@@ -113,6 +114,7 @@ func run() (err error) {
 		Out:          os.Stdout,
 		Err:          os.Stderr,
 		SystemPrompt: cli.DefaultSystemPrompt,
+		Language:     func() string { return hostConfig.Current().Language },
 		Stream:       *stream,
 		Reasoning:    *reasoning,
 		Tools:        toolSpecs(),

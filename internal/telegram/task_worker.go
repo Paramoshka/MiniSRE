@@ -18,7 +18,7 @@ const scheduledPrompt = " This is an independent scheduled diagnostic check, not
 	"Use diagnostic tools on every run. Apply the problem criteria in the task text. " +
 	"If no criteria are supplied, use your judgement and explicitly mention that in summary. " +
 	"If the tools cannot establish the requested facts, report unknown, never ok. " +
-	"Return exactly one JSON object without Markdown: {\"status\":\"ok\"|\"problem\"|\"unknown\",\"summary\":\"brief explanation in the task's language\"}. " +
+	"Return exactly one JSON object without Markdown: {\"status\":\"ok\"|\"problem\"|\"unknown\",\"summary\":\"brief explanation in the configured response language\"}. " +
 	"Problem means an observed unhealthy condition, not an API error. Do not create schedules or execute arbitrary commands."
 
 type taskCompletion struct {
@@ -42,6 +42,7 @@ func (b *Bot) checkTask(ctx context.Context, task scheduledTask) taskOutcome {
 	}
 	s := b.newSession()
 	s.SystemPrompt = session.DefaultSystemPrompt + scheduledPrompt
+	s.Language = b.currentLanguage()
 	allowedTools := make([]agent.Tool, 0, len(s.Tools))
 	for _, tool := range s.Tools {
 		if tool.Name != "lab_deploy" && tool.Name != "lab_destroy" {

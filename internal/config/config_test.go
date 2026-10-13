@@ -57,3 +57,35 @@ func TestLoadRejectsInvalidConfigWithoutSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestResponseLanguageConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name, yaml, want string
+		invalid          bool
+	}{
+		{"default", "hosts: {}\n", "ru", false},
+		{"Russian", "language: ru\n", "ru", false},
+		{"English", "language: en\n", "en", false},
+		{"unsupported", "language: secret\n", "", true},
+		{"empty", "language: ''\n", "", true},
+		{"wrong type", "language: [secret]\n", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "hosts.yaml")
+			if err := os.WriteFile(path, []byte(tc.yaml), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if (err != nil) != tc.invalid || cfg.Language != tc.want {
+				t.Fatalf("language=%q err=%v", cfg.Language, err)
+			}
+			if err != nil && strings.Contains(err.Error(), "secret") {
+				t.Fatal("invalid language leaked its value")
+			}
+		})
+	}
+	cfg, err := Load("")
+	if err != nil || cfg.Language != "ru" {
+		t.Fatalf("default without config: %+v, %v", cfg, err)
+	}
+}

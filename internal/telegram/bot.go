@@ -26,6 +26,7 @@ type Bot struct {
 	token         string
 	users         func() []int64
 	newSession    func() *session.Session
+	language      func() string
 	sessions      map[int64]*session.Session
 	errOut        io.Writer
 	client        *http.Client
@@ -84,6 +85,18 @@ func New(token string, users func() []int64, newSession func() *session.Session,
 		sessions: make(map[int64]*session.Session), errOut: errOut,
 		client: client, baseURL: "https://api.telegram.org",
 	}, nil
+}
+
+// SetLanguage supplies the current response language; call before Run.
+func (b *Bot) SetLanguage(language func() string) {
+	b.language = language
+}
+
+func (b *Bot) currentLanguage() string {
+	if b.language != nil {
+		return b.language()
+	}
+	return "ru"
 }
 
 func (b *Bot) Run(ctx context.Context) (runErr error) {
@@ -239,6 +252,7 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart fu
 		s.MaxHistoryTurns = maxHistoryTurns
 		b.sessions[m.Chat.ID] = s
 	}
+	s.Language = b.currentLanguage()
 	turn, runTool := s.Turn, s.RunTool
 	defer func() {
 		s.Turn, s.RunTool = turn, runTool

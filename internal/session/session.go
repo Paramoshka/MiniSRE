@@ -33,7 +33,7 @@ const DefaultSystemPrompt = "You are mini-sre, a concise SRE assistant. " +
 
 const maxToolRounds = 5
 
-const finalAnswerPrompt = "Diagnostic checks are finished for this request. Give a concise final answer in the user's language using only the observations and tool results already collected. Distinguish confirmed facts, likely causes and checks that could not be completed. If the cause is unknown, say so. Preserve the response format required by the original system instructions, including JSON when requested; otherwise use ordinary text. Do not request or emit tool calls or DSML invocation markup."
+const finalAnswerPrompt = "Diagnostic checks are finished for this request. Give a concise final answer in the response language required by the original system instructions, using only the observations and tool results already collected. Distinguish confirmed facts, likely causes and checks that could not be completed. If the cause is unknown, say so. Preserve the response format required by the original system instructions, including JSON when requested; otherwise use ordinary text. Do not request or emit tool calls or DSML invocation markup."
 
 type Session struct {
 	Turn            func(context.Context, agent.Request) (*agent.Response, error)
@@ -41,16 +41,27 @@ type Session struct {
 	RunTool         func(context.Context, agent.ToolCall) (string, error)
 	OnToolCall      func(agent.ToolCall)
 	SystemPrompt    string
+	Language        string
 	MaxHistoryTurns int
 	History         []agent.Message
 }
 
-func (s *Session) Reset() {
+func (s *Session) systemPrompt() string {
 	prompt := s.SystemPrompt
 	if prompt == "" {
 		prompt = DefaultSystemPrompt
 	}
-	s.History = []agent.Message{{Role: agent.RoleSystem, Content: prompt}}
+	switch s.Language {
+	case "ru":
+		prompt += " Always write user-facing answers and explanations in Russian, regardless of the language of the request or earlier conversation. Preserve diagnostic data and required machine-readable keys and status values."
+	case "en":
+		prompt += " Always write user-facing answers and explanations in English, regardless of the language of the request or earlier conversation. Preserve diagnostic data and required machine-readable keys and status values."
+	}
+	return prompt
+}
+
+func (s *Session) Reset() {
+	s.History = []agent.Message{{Role: agent.RoleSystem, Content: s.systemPrompt()}}
 }
 
 // Restore accepts completed turns without a system message and uses the current prompt.
@@ -102,6 +113,7 @@ func (s *Session) Ask(ctx context.Context, input string) (response *agent.Respon
 	if s.History == nil {
 		s.Reset()
 	}
+	s.History[0].Content = s.systemPrompt()
 	base := len(s.History)
 	defer func() {
 		if err != nil {
