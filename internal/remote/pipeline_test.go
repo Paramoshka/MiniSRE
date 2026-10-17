@@ -87,6 +87,32 @@ func TestPipelinePipeStage(t *testing.T) {
 	}
 }
 
+func TestPipelinePipeStageReportsInnerFailure(t *testing.T) {
+	result, err := (&Runner{}).RunPipeline(context.Background(), "local", Pipeline{Stdout: "inline", Stderr: "inline", Stages: []Stage{{
+		Pipe: []Command{
+			{Program: "printf", Args: []string{"line\n"}},
+			{Program: "false"},
+			{Program: "head", Args: []string{"-n", "1"}},
+		},
+	}}})
+	if err != nil || !result.Complete || result.Codes[0] != 1 {
+		t.Fatalf("inner failure = %+v, %v", result, err)
+	}
+}
+
+func TestPipelinePipeStageAllowsSIGPIPEBeforeHead(t *testing.T) {
+	result, err := (&Runner{}).RunPipeline(context.Background(), "local", Pipeline{Stdout: "inline", Stderr: "inline", Stages: []Stage{{
+		Pipe: []Command{
+			{Program: "seq", Args: []string{"1", "100000"}},
+			{Program: "cat"},
+			{Program: "head", Args: []string{"-n", "1"}},
+		},
+	}}})
+	if err != nil || !result.Complete || result.Stdout != "1\n" || result.Codes[0] != 0 {
+		t.Fatalf("sigpipe before head = %+v, %v", result, err)
+	}
+}
+
 func TestPipelineArtifactsAndLimits(t *testing.T) {
 	for _, host := range []string{"local", "web"} {
 		t.Run(host, func(t *testing.T) {

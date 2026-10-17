@@ -123,12 +123,11 @@ func parseMeminfo(raw string) (map[string]uint64, error) {
 
 func parseVMStat(raw string) map[string]uint64 {
 	counters := map[string]uint64{
-		"oom_kill":                 0,
-		"oom_kill_allocating_task": 0,
-		"pswpout":                  0,
-		"pgmajfault":               0,
-		"pgscan_direct":            0,
-		"pgsteal_direct":           0,
+		"oom_kill":       0,
+		"pswpout":        0,
+		"pgmajfault":     0,
+		"pgscan_direct":  0,
+		"pgsteal_direct": 0,
 	}
 	present := make(map[string]uint64)
 	for _, line := range strings.Split(raw, "\n") {
@@ -269,7 +268,7 @@ func formatMemoryReport(sample memorySample) string {
 
 	if len(sample.vm) > 0 {
 		out.WriteString("OOM and reclaim counters (cumulative since boot):\n")
-		for _, key := range []string{"oom_kill", "oom_kill_allocating_task", "pswpout", "pgmajfault", "pgscan_direct", "pgsteal_direct"} {
+		for _, key := range []string{"oom_kill", "pswpout", "pgmajfault", "pgscan_direct", "pgsteal_direct"} {
 			if value, ok := sample.vm[key]; ok {
 				fmt.Fprintf(&out, "  %s=%d\n", key, value)
 			}

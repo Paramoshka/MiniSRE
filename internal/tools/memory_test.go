@@ -38,7 +38,6 @@ const psifixture = `/proc/pressure/cpu:some avg10=0.00 avg60=0.10 avg300=0.20 to
 
 const vmstatFixture = `nr_free_pages 12345
 oom_kill 2
-oom_kill_allocating_task 1
 pswpout 100
 pgmajfault 200
 pgscan_direct 300
@@ -66,7 +65,6 @@ func TestFormatMemoryReport(t *testing.T) {
 		"Swap: total=512.0 MiB used=512.0 MiB free=0 B (100.0% used)",
 		"memory full: avg10=0.50% avg60=0.20% avg300=0.10% total=1.0s",
 		"oom_kill=2",
-		"oom_kill_allocating_task=1",
 		"Notes: MemAvailable is an estimate",
 	} {
 		if !strings.Contains(out, want) {

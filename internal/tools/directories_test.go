@@ -73,7 +73,7 @@ func TestListDirectoryLimitAndEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list_directory: %v", err)
 	}
-	if !strings.Contains(out, "listing limited to 2 entries; 1 additional entries omitted") {
+	if !strings.Contains(out, "listing limited to 2 entries; 1 additional entry omitted") {
 		t.Fatalf("missing limit marker:\n%s", out)
 	}
 	var names []string

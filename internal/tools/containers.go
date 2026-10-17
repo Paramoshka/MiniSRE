@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"mini-sre/internal/remote"
@@ -23,6 +24,12 @@ func containersCommand(args toolArgs) (remote.Command, int, error) {
 	if !args.RunningOnly {
 		flags = append(flags, "--all")
 	}
+	// --last bounds the daemon response to the requested number of containers.
+	// It has no effect on selection: docker ps already returns newest first.
+	flags = append(flags, "--last", strconv.Itoa(limit))
+	if args.RunningOnly {
+		flags = append(flags, "--filter", "status=running")
+	}
 	flags = append(flags, "--format", containerFormat)
 	return remote.Command{Program: "docker", Args: flags}, limit, nil
 }
@@ -37,7 +44,7 @@ func (t *Tools) Containers(ctx context.Context, args toolArgs) (string, error) {
 		return "", err
 	}
 	if result.Truncated {
-		return "", errors.New("tools: docker container output was truncated; inspect a specific container with get_service_status")
+		return "", fmt.Errorf("tools: docker container output was truncated before the requested %d rows; lower limit", limit)
 	}
 	rows := splitNonemptyLines(result.Stdout)
 	scope := "all containers"

@@ -101,7 +101,12 @@ func (t *Tools) Directory(ctx context.Context, args toolArgs) (string, error) {
 		out.WriteString("\n")
 	}
 	if len(entries) > limit {
-		fmt.Fprintf(&out, "[listing limited to %d entries; %d additional entries omitted]\n", limit, len(entries)-limit)
+		omitted := len(entries) - limit
+		noun := "entries"
+		if omitted == 1 {
+			noun = "entry"
+		}
+		fmt.Fprintf(&out, "[listing limited to %d entries; %d additional %s omitted]\n", limit, omitted, noun)
 	}
 	if !complete {
 		out.WriteString("[listing incomplete; output was truncated]\n")

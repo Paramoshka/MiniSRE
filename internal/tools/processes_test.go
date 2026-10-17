@@ -109,6 +109,36 @@ func TestTopProcessesCPUInterval(t *testing.T) {
 	}
 }
 
+func TestTopProcessesCPUIntervalIsolatesTopConfig(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "env")
+	fixtureFile := filepath.Join(dir, "fixture")
+	if err := os.WriteFile(fixtureFile, []byte(topIntervalFixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nprintf '%s\\n%s\\n' \"$HOME\" \"$XDG_CONFIG_HOME\" > \"$MINISRE_TEST_ENV\"\ncat \"$MINISRE_TEST_FIXTURE\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "top"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("MINISRE_TEST_ENV", envFile)
+	t.Setenv("MINISRE_TEST_FIXTURE", fixtureFile)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	if _, err := Registry(&remote.Runner{})["get_top_processes"](context.Background(), json.RawMessage(`{"sort_by":"cpu_interval","limit":1}`)); err != nil {
+		t.Fatalf("cpu_interval: %v", err)
+	}
+	got, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := topConfigHome + "\n" + topConfigHome + "\n"
+	if string(got) != want {
+		t.Fatalf("top config environment = %q, want %q", got, want)
+	}
+}
+
 func TestTopProcessesCPUIntervalErrors(t *testing.T) {
 	call := Registry(&remote.Runner{})["get_top_processes"]
 	fakeCommand(t, "top", strings.Split(topIntervalFixture, "\ntop - 12:00:01")[0]+"\n", "", "0")
@@ -122,8 +152,9 @@ func TestTopProcessesCPUIntervalErrors(t *testing.T) {
 	noRows := "    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n\n" +
 		"    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n"
 	fakeCommand(t, "top", noRows, "", "0")
-	if _, err := call(context.Background(), json.RawMessage(`{"sort_by":"cpu_interval"}`)); err == nil {
-		t.Fatal("top sample without rows was accepted")
+	out, err := call(context.Background(), json.RawMessage(`{"sort_by":"cpu_interval"}`))
+	if err != nil || !strings.Contains(out, "No non-idle processes") {
+		t.Fatalf("empty interval sample = %q, %v", out, err)
 	}
 	fakeCommand(t, "top", "", "permission denied\n", "1")
 	if _, err := call(context.Background(), json.RawMessage(`{"sort_by":"cpu_interval"}`)); err == nil {

@@ -170,7 +170,16 @@ func stageScript(stage Stage, mergeStderr bool) (string, error) {
 			}
 			parts = append(parts, command)
 		}
-		body = "( " + strings.Join(parts, " | ") + " )"
+		// Report failures from every command in the pipe. SIGPIPE is expected
+		// only for commands before a limiting head, which closes the pipe early.
+		body = fmt.Sprintf(
+			`( %s; codes=("${PIPESTATUS[@]}"); ((${#codes[@]})) || exit 125; `+
+				`code=0; last=$((${#codes[@]}-1)); `+
+				`for index in "${!codes[@]}"; do `+
+				`if (( codes[index] != 0 )) && ! (( index < last && codes[index] == 141 )); then `+
+				`code=${codes[index]}; fi; done; exit "$code" )`,
+			strings.Join(parts, " | "),
+		)
 	} else {
 		commands := make([]string, 0, len(stage.Commands))
 		for _, cmd := range stage.Commands {

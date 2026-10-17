@@ -27,7 +27,10 @@ Process probes require `ps` and `pgrep` from procps-ng, locally or in the SSH us
 The `get_vmstat` probe requires procps-ng `vmstat` with `-w`, `-n`, `-y` and
 `-S K` support on the selected host. `get_top_processes` with
 `sort_by=cpu_interval` additionally requires procps-ng `top` with `-b`, `-n`,
-`-d`, `-o`, `-w` and `-i` support. The agent does not install missing commands.
+`-d`, `-o`, `-w` and `-i` support, plus `env` from coreutils. The probe runs
+`top` with `HOME` and `XDG_CONFIG_HOME` pointing at a nonexistent path, so a
+personal `toprc` cannot enable command-line display or change idle filtering.
+The agent does not install missing commands.
 
 File probes require GNU `sed` (with `--sandbox`), `grep`, `tail`, `readlink` and
 `stat`; directory listings additionally need GNU `find`, locally or in the SSH
@@ -68,7 +71,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `get_top_processes` | `sort_by`, default `memory`; `limit`, default `10` | descending ranking by RSS, lifetime-average CPU, or one-second interval CPU (`cpu_interval` via `top`), with PID, user, CPU%, MEM%, RSS in KiB and process name |
 | `search_processes` | required `pattern`; `limit=100` | case-insensitive literal name search across all visible processes, returning PID and name |
 | `get_service_status` | required `service`; `backend`, default `systemd`; `scope`, default `system` | systemd unit state or Docker container `.State` |
-| `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes`, `priority`, `boot` | recent journal or container logs; systemd priority and boot filters |
+| `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes`, `priority`, `boot`, `output` | recent journal or container logs; systemd priority, boot and output-format filters |
 | `list_failed_services` | `scope`, default `system` | failed systemd units via `systemctl --failed`; empty output means none in that scope |
 | `list_containers` | `running_only=false`, `limit=100` | Docker containers with ID, name, image, state, status and ports; includes stopped containers by default |
 | `read_file` | required `path`; `start_line=1`, `lines=100`, `tail=false` | read a line range or the last lines of one file |
@@ -103,10 +106,12 @@ explicitly.
 
 `list_containers` runs `docker ps` with a fixed format and returns ID, name,
 image, state, status and ports. Stopped containers are included by default; set
-`running_only=true` to hide them. `limit` accepts 1..500 rows and defaults to 100.
-The Docker CLI and daemon access must be available to the executing user. An empty
-list is a diagnostic result; a daemon or permission failure is an error. Neither
-discovery tool proves that a unit or container is healthy.
+`running_only=true` to hide them. `limit` accepts 1..500 rows and defaults to 100;
+it is passed to Docker as `--last`, so the daemon returns at most that many
+containers in the same newest-first order. The Docker CLI and daemon access must
+be available to the executing user. An empty list is a diagnostic result; a daemon
+or permission failure is an error. Neither discovery tool proves that a unit or
+container is healthy.
 
 `backend` is `systemd` or `docker`, selected per request. Systemd names may omit
 the `.service` suffix; Docker targets are container names or IDs, not Compose or
@@ -135,7 +140,10 @@ For systemd, `priority` selects a minimum severity: `err` includes `emerg` throu
 32-character lowercase hexadecimal boot ID. These filters are useful for kernel
 errors and OOM events and for checking whether an incident happened before a
 reboot. The relative `since_minutes` window still applies, so use a large enough
-value with `boot=previous`. `priority` and `boot` are rejected for Docker logs.
+value with `boot=previous`. `output=cat` omits timestamps, host and unit metadata
+and leaves only messages; use it as a pipeline source before `count` when
+repeated log lines would otherwise differ by timestamp. `priority`, `boot` and
+`output` are rejected for Docker logs.
 
 ## Processes
 
@@ -151,11 +159,14 @@ truncated standalone samples are reported as errors, not healthy results.
 
 `get_top_processes` accepts `sort_by=memory`, `sort_by=cpu` or
 `sort_by=cpu_interval` and `limit=1..50`. `cpu_interval` runs
-`top -b -n 2 -d 1 -o +%CPU -w 256 -i` and reports the second sample, so CPU
-percentages cover a one-second interval; idle processes are omitted and the
-first since-boot table is discarded. It requires procps-ng `top`. If the output is
-truncated before the second table, the probe fails instead of reporting the
-since-boot table. For example, ask "which processes use the most memory on web-1?",
+`env HOME=/nonexistent XDG_CONFIG_HOME=/nonexistent top -b -n 2 -d 1 -o +%CPU -w 256 -i`
+and reports the second sample, so CPU percentages cover a one-second interval;
+idle processes are omitted and the first since-boot table is
+discarded. The isolated configuration keeps a personal `toprc` from enabling
+command-line display or changing idle filtering. When the second table contains
+no rows, the report says that no non-idle processes were observed. It requires
+procps-ng `top` and `env`. If the output is truncated before the second table,
+the probe fails instead of reporting the since-boot table. For example, ask "which processes use the most memory on web-1?",
 "top 5 processes by CPU on local", or "what used CPU in the last second on web-1?".
 Memory sorting uses RSS (resident physical
 memory), not virtual address space. RSS includes shared pages, so summing it across processes can
@@ -351,9 +362,10 @@ marked `possibly_partial=true` in the error report.
 certificate chain with OpenSSL and reports the subject, issuer, validity window,
 days remaining, serial, SANs, public key, negotiated protocol/cipher, chain length
 and the OpenSSL verification result. Optional `server_name` overrides SNI and the
-expected name. For a DNS destination the probe sends SNI and verifies the hostname;
-for an IP destination it verifies the IP SAN without SNI. `server_name` may be a
-DNS name or an IP address.
+expected name. For a DNS destination without `server_name` the probe sends SNI and
+verifies the hostname; for an IP destination it verifies the IP SAN without SNI.
+When `server_name` is an IP address, no SNI is sent. `server_name` may be a DNS
+name or an IP address.
 
 Verification uses the probe host's trust store. A failed verification, an expired
 or not-yet-valid certificate, or a connection failure is reported as diagnostic
@@ -385,8 +397,12 @@ Up to four stdin filters are allowed: `grep` (literal by default, optional
 a line range (`start_line=1`, `lines=100`), or `count`. `invert=true` keeps lines
 that do not match and is valid only for `grep`. `count` groups identical lines,
 sorts by descending occurrence count and returns the most frequent lines; its
-`limit` defaults to 20 and `ignore_case` folds case. Use it after `grep` for a
-top-errors view. Match and line limits accept 1..500. No
+`limit` defaults to 20 and `ignore_case` folds case. To count repeated journal
+messages, set the `get_service_logs` source argument `output=cat`; otherwise the
+timestamp and unit prefix make each line unique. Failures from its internal
+`sort`/`uniq` commands are reported as a failed stage; SIGPIPE from the final
+`head` limit is expected and is not an error. Match and line limits accept
+1..500. No
 arbitrary programs, argv, shell expressions, sed scripts or filter file paths
 are exposed. Filters run before the final preview is limited, so a match beyond
 the first 64 KiB can still be found. Limiting filters drain their remaining input

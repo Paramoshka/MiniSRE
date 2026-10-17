@@ -70,9 +70,10 @@ archives use stable filenames so the installer can select one by architecture.
 - `internal/cli` - REPL, one-shot, streaming console output;
 - `internal/session` - shared history and agent loop (up to 5 tool call rounds, then a final answer without tools);
 - `internal/tools` - probes and their JSON schemas for the model;
-  `load.go`, `disk.go`, `memory.go`, `service.go`, `containers.go`, `directories.go`,
-  `connectivity.go` and `tls.go` contain the individual probes; `pipeline.go` and
-  `pipeline_spec.go` implement the filter pipeline;
+  `load.go`, `vmstat.go`, `disk.go`, `memory.go`, `processes.go`, `service.go`,
+  `containers.go`, `directories.go`, `files.go`, `network.go`, `connectivity.go`
+  and `tls.go` contain the individual probes; `pipeline.go` and `pipeline_spec.go`
+  implement the filter pipeline;
 - `internal/config`, `internal/remote` - YAML hosts and local/SSH command execution;
 - `internal/telegram` - Bot API polling, authorization and chat sessions;
 - `cmd/main.go` - flags and wiring.

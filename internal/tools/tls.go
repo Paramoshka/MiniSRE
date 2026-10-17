@@ -144,7 +144,7 @@ func formatTLSCertificate(raw string, now time.Time) (string, error) {
 	chain := 1
 	for len(rest) > 0 {
 		next, remaining := pem.Decode(rest)
-		if next == nil {
+		if next == nil || next.Type != "CERTIFICATE" {
 			break
 		}
 		chain++
@@ -229,10 +229,14 @@ func formatTLSCertificate(raw string, now time.Time) (string, error) {
 
 func durationDays(duration time.Duration) string {
 	days := int(math.Floor(duration.Hours() / 24))
-	if days == 1 {
+	switch days {
+	case 0:
+		return "less than 1 day"
+	case 1:
 		return "1 day"
+	default:
+		return fmt.Sprintf("%d days", days)
 	}
-	return fmt.Sprintf("%d days", days)
 }
 
 func publicKeyDescription(cert *x509.Certificate) string {

@@ -287,6 +287,35 @@ func TestPipelineCount(t *testing.T) {
 	}
 }
 
+func TestPipelineCountWithJournalMessageOutput(t *testing.T) {
+	argsFile := fakeCommand(t, "journalctl", "error A\nerror A\nwarning B\n", "", "0")
+	raw := json.RawMessage(`{"source":{"tool":"get_service_logs","args":{"output":"cat"}},"filters":[{"type":"count"}]}`)
+	out, err := Registry(&remote.Runner{})["run_pipeline"](context.Background(), raw)
+	if err != nil || !strings.Contains(out, "2 error A") || !strings.Contains(out, "1 warning B") {
+		t.Fatalf("journal message count = %q, %v", out, err)
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(args), "--output=cat\n") {
+		t.Fatalf("journal message output was not requested: %s", args)
+	}
+}
+
+func TestPipelineCountReportsInnerFailures(t *testing.T) {
+	fakeCommand(t, "uniq", "", "uniq failed\n", "2")
+	for _, stderr := range []string{"inline", "discard"} {
+		t.Run(stderr, func(t *testing.T) {
+			raw := json.RawMessage(`{"source":{"tool":"get_load_average"},"filters":[{"type":"count"}],"stderr":"` + stderr + `"}`)
+			out, err := Registry(&remote.Runner{})["run_pipeline"](context.Background(), raw)
+			if err == nil || !strings.Contains(err.Error(), "stage[1]=count exit_code=2") {
+				t.Fatalf("count failure = %q, %v", out, err)
+			}
+		})
+	}
+}
+
 func TestPipelinePatternIsLiteralShellData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "unexpected")
 	pattern := "$(touch " + path + ")"

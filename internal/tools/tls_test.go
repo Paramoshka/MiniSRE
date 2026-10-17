@@ -83,6 +83,11 @@ func TestFormatTLSCertificate(t *testing.T) {
 	if err != nil || !strings.Contains(out, "verification=unavailable") {
 		t.Fatalf("missing verify result = %q, %v", out, err)
 	}
+	nonCertificate := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("not a certificate")})
+	out, err = formatTLSCertificate(raw+string(nonCertificate), now)
+	if err != nil || !strings.Contains(out, "chain_certificates=1") {
+		t.Fatalf("non-certificate PEM counted in chain = %q, %v", out, err)
+	}
 }
 
 func TestFormatTLSCertificateValidity(t *testing.T) {
@@ -90,6 +95,10 @@ func TestFormatTLSCertificateValidity(t *testing.T) {
 	out, err := formatTLSCertificate(testCertificate(t, now.Add(-10*24*time.Hour), now.Add(-3*24*time.Hour)), now)
 	if err != nil || !strings.Contains(out, "validity=expired 3 days ago") {
 		t.Fatalf("expired certificate = %q, %v", out, err)
+	}
+	out, err = formatTLSCertificate(testCertificate(t, now.Add(-12*time.Hour), now.Add(-time.Hour)), now)
+	if err != nil || !strings.Contains(out, "validity=expired less than 1 day ago") {
+		t.Fatalf("recently expired certificate = %q, %v", out, err)
 	}
 	out, err = formatTLSCertificate(testCertificate(t, now.Add(24*time.Hour), now.Add(48*time.Hour)), now)
 	if err != nil || !strings.Contains(out, "validity=not yet valid") {

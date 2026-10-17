@@ -21,19 +21,19 @@ func TestListContainers(t *testing.T) {
 		{
 			name:     "all containers",
 			raw:      `{}`,
-			wantArgs: "ps\n--all\n--format\n" + containerFormat + "\n",
+			wantArgs: "ps\n--all\n--last\n100\n--format\n" + containerFormat + "\n",
 			want:     "Docker containers on local (all containers):",
 		},
 		{
 			name:     "running only",
 			raw:      `{"running_only":true}`,
-			wantArgs: "ps\n--format\n" + containerFormat + "\n",
+			wantArgs: "ps\n--last\n100\n--filter\nstatus=running\n--format\n" + containerFormat + "\n",
 			want:     "Docker containers on local (running containers):",
 		},
 		{
 			name:     "limit",
 			raw:      `{"limit":1}`,
-			wantArgs: "ps\n--all\n--format\n" + containerFormat + "\n",
+			wantArgs: "ps\n--all\n--last\n1\n--format\n" + containerFormat + "\n",
 			want:     "additional containers may be omitted",
 		},
 	} {

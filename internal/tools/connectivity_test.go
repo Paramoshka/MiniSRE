@@ -71,7 +71,7 @@ func TestCheckTCPPortPassesArgumentsLiterally(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "6\nbash\n--noprofile\n--norc\n-c\n" + tcpConnectScript + "\nmini-sre-tcp\nexample.com\n443\n"
+	want := "5\nbash\n--noprofile\n--norc\n-c\n" + tcpConnectScript + "\nmini-sre-tcp\nexample.com\n443\n"
 	if string(args) != want {
 		t.Fatalf("timeout arguments = %q, want %q", args, want)
 	}

@@ -53,7 +53,7 @@ func tcpCommand(args toolArgs) (remote.Command, error) {
 		return remote.Command{}, errors.New("tools: port must be 1..65535")
 	}
 	return remote.Command{Program: "timeout", Args: []string{
-		"6", "bash", "--noprofile", "--norc", "-c", tcpConnectScript, "mini-sre-tcp",
+		"5", "bash", "--noprofile", "--norc", "-c", tcpConnectScript, "mini-sre-tcp",
 		args.Destination, strconv.Itoa(*args.Port),
 	}}, nil
 }

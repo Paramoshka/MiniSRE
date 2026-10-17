@@ -71,10 +71,10 @@ func TestFailedServices(t *testing.T) {
 	for _, tc := range []struct {
 		name, scope, stdout, want string
 	}{
-		{"system", "", unitOutput, "Failed systemd units (scope=system):"},
-		{"user", "user", unitOutput, "Failed systemd units (scope=user):"},
-		{"empty system", "", "", "No failed systemd units in the system scope."},
-		{"empty user", "user", "", "No failed systemd units in the user scope."},
+		{"system", "", unitOutput, "Failed systemd units on local (scope=system):"},
+		{"user", "user", unitOutput, "Failed systemd units on local (scope=user):"},
+		{"empty system", "", "", "No failed systemd units on local in the system scope."},
+		{"empty user", "user", "", "No failed systemd units on local in the user scope."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			argsFile := fakeCommand(t, "systemctl", tc.stdout, "", "0")
@@ -134,7 +134,7 @@ func TestServiceLogs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if backend == "systemd" && (!strings.Contains(string(args), "--lines=100\n") || !strings.Contains(string(args), "--since=-60min\n")) {
+			if backend == "systemd" && (!strings.Contains(string(args), "--output=short-iso\n") || !strings.Contains(string(args), "--lines=100\n") || !strings.Contains(string(args), "--since=-60min\n")) {
 				t.Fatalf("wrong journal defaults: %s", args)
 			}
 			if backend == "docker" && (!strings.Contains(string(args), "--tail=100\n") || !strings.Contains(string(args), "--since=60m\n")) {
@@ -157,6 +157,7 @@ func TestJournalFilters(t *testing.T) {
 		{"current boot", `{"boot":"current"}`, []string{"--boot=0"}},
 		{"explicit boot id", `{"boot":"` + bootID + `"}`, []string{"--boot=" + bootID}},
 		{"user priority", `{"scope":"user","priority":"crit"}`, []string{"--priority=crit", "--user"}},
+		{"message output", `{"service":"nginx","output":"cat"}`, []string{"--output=cat", "--unit=nginx.service"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			argsFile := fakeCommand(t, "journalctl", "log entry\n", "", "0")
@@ -182,8 +183,10 @@ func TestJournalFilterValidation(t *testing.T) {
 		`{"priority":"ERROR"}`, `{"priority":"err..warning"}`, `{"priority":"0"}`, `{"priority":"err; id"}`,
 		`{"boot":"last"}`, `{"boot":"0"}`, `{"boot":"-1"}`, `{"boot":"` + strings.Repeat("A", 32) + `"}`,
 		`{"boot":"` + strings.Repeat("a", 31) + `"}`, `{"boot":"` + strings.Repeat("a", 33) + `"}`,
+		`{"output":"json"}`, `{"output":"short"}`,
 		`{"backend":"docker","service":"web","priority":"err"}`,
 		`{"backend":"docker","service":"web","boot":"current"}`,
+		`{"backend":"docker","service":"web","output":"cat"}`,
 	} {
 		args, err := decodeArgs(json.RawMessage(raw))
 		if err != nil {

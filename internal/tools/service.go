@@ -98,10 +98,14 @@ func (t *Tools) FailedServices(ctx context.Context, hostID, scope string) (strin
 	if scope == "" {
 		scope = "system"
 	}
-	if strings.TrimSpace(result.Stdout) == "" {
-		return fmt.Sprintf("No failed systemd units in the %s scope.", scope), nil
+	host := hostID
+	if host == "" {
+		host = "local"
 	}
-	return fmt.Sprintf("Failed systemd units (scope=%s):\n%s", scope, commandOutput(result)), nil
+	if strings.TrimSpace(result.Stdout) == "" {
+		return fmt.Sprintf("No failed systemd units on %s in the %s scope.", host, scope), nil
+	}
+	return fmt.Sprintf("Failed systemd units on %s (scope=%s):\n%s", host, scope, commandOutput(result)), nil
 }
 
 func (t *Tools) ServiceStatus(ctx context.Context, hostID string, target ServiceTarget) (string, error) {
@@ -117,6 +121,16 @@ func (t *Tools) ServiceStatus(ctx context.Context, hostID string, target Service
 		return "", err
 	}
 	return commandOutput(result), nil
+}
+
+func journalOutput(output string) (string, error) {
+	switch output {
+	case "":
+		return "short-iso", nil
+	case "short-iso", "cat":
+		return output, nil
+	}
+	return "", errors.New("tools: output must be short-iso or cat")
 }
 
 func journalPriority(priority string) (string, error) {
@@ -161,10 +175,14 @@ func serviceLogsCommand(args toolArgs) (remote.Command, error) {
 		return remote.Command{}, errors.New("tools: lines must be 1..500 and since_minutes must be positive")
 	}
 	if target.Backend == "docker" {
-		if args.Priority != "" || args.Boot != "" {
-			return remote.Command{}, errors.New("tools: priority and boot are only supported for systemd")
+		if args.Priority != "" || args.Boot != "" || args.Output != "" {
+			return remote.Command{}, errors.New("tools: priority, boot and output are only supported for systemd")
 		}
 		return remote.Command{Program: "docker", Args: []string{"logs", "--timestamps", "--tail=" + strconv.Itoa(lines), "--since=" + strconv.Itoa(minutes) + "m", "--", target.Name}}, nil
+	}
+	output, err := journalOutput(args.Output)
+	if err != nil {
+		return remote.Command{}, err
 	}
 	priorityFlag, err := journalPriority(args.Priority)
 	if err != nil {
@@ -174,7 +192,7 @@ func serviceLogsCommand(args toolArgs) (remote.Command, error) {
 	if err != nil {
 		return remote.Command{}, err
 	}
-	flags := []string{"--no-pager", "--output=short-iso", "--lines=" + strconv.Itoa(lines), "--since=-" + strconv.Itoa(minutes) + "min"}
+	flags := []string{"--no-pager", "--output=" + output, "--lines=" + strconv.Itoa(lines), "--since=-" + strconv.Itoa(minutes) + "min"}
 	if priorityFlag != "" {
 		flags = append(flags, priorityFlag)
 	}

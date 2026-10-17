@@ -11,6 +11,11 @@ import (
 	"mini-sre/internal/remote"
 )
 
+// top reads its personal configuration from HOME or XDG_CONFIG_HOME. Pointing
+// both at a path that does not exist keeps command-line display and saved idle
+// settings from changing the probe output.
+const topConfigHome = "/nonexistent"
+
 func processCommand(args toolArgs) (remote.Command, string, int, error) {
 	sortBy := args.SortBy
 	if sortBy == "" {
@@ -24,7 +29,10 @@ func processCommand(args toolArgs) (remote.Command, string, int, error) {
 		return remote.Command{}, "", 0, errors.New("tools: limit must be 1..50")
 	}
 	if sortBy == "cpu_interval" {
-		return remote.Command{Program: "top", Args: []string{"-b", "-n", "2", "-d", "1", "-o", "+%CPU", "-w", "256", "-i"}}, sortBy, limit, nil
+		return remote.Command{Program: "env", Args: []string{
+			"HOME=" + topConfigHome, "XDG_CONFIG_HOME=" + topConfigHome,
+			"top", "-b", "-n", "2", "-d", "1", "-o", "+%CPU", "-w", "256", "-i",
+		}}, sortBy, limit, nil
 	}
 	sortKey := ""
 	switch sortBy {
@@ -94,7 +102,7 @@ func formatTopInterval(result remote.Result, limit int) (string, error) {
 		rows = append(rows, line)
 	}
 	if len(rows) == 1 {
-		return "", errors.New("tools: top returned no complete process rows for the interval sample")
+		return "No non-idle processes were observed during the 1-second interval; idle processes are omitted.", nil
 	}
 	return fmt.Sprintf("Top %d processes by CPU over a 1-second interval (top; idle processes omitted; CPU%% can exceed 100%% on multiple cores):\n%s",
 		len(rows)-1, strings.Join(rows, "\n")), nil
