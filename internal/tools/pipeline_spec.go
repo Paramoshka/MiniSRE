@@ -7,7 +7,7 @@ import (
 
 func pipelineExcluded(name string) bool {
 	switch name {
-	case "list_hosts", "run_pipeline", "get_memory":
+	case "list_hosts", "run_pipeline", "get_memory", "list_directory":
 		return true
 	}
 	return strings.HasPrefix(name, "lab_")

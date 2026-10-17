@@ -88,6 +88,11 @@ func Specs() []Spec {
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"path":{"type":"string","description":"Absolute path to one regular file; hidden components, . and .. are forbidden."},"pattern":{"type":"string","minLength":1,"description":"Nonempty literal text, or an extended regular expression when regex=true."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Maximum number of matching lines; default 100."},"regex":{"type":"boolean","description":"Use extended regular expressions instead of literal matching; default false."},"ignore_case":{"type":"boolean","description":"Ignore case; default false."}},"required":["path","pattern"],"additionalProperties":false}`),
 		},
 		{
+			Name:        "list_directory",
+			Description: "List one directory level with type, size, modification time and symlink target. Requires an absolute path; hidden path components and hidden entries are not shown, and symlink targets with hidden components are hidden. Does not recurse. limit defaults to 100 and accepts 1..500. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"path":{"type":"string","description":"Absolute directory path; hidden components, . and .. are forbidden."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Maximum entries returned; default 100."}},"required":["path"],"additionalProperties":false}`),
+		},
+		{
 			Name:        "get_ip_rules",
 			Description: "Show policy routing rules with ip rule show. Optional table filters rules referring to that routing table; it does not show routes inside the table. Defaults: host_id=local, family=ipv4. Read-only.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["ipv4","ipv6"]},"table":{"type":"string","description":"Optional routing table name or positive decimal 32-bit ID without leading zeros."}},"additionalProperties":false}`),
@@ -189,6 +194,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.ReadFile(ctx, args)
 			case "search_file":
 				out, err = t.SearchFile(ctx, args)
+			case "list_directory":
+				out, err = t.Directory(ctx, args)
 			case "get_ip_rules":
 				out, err = t.IPRules(ctx, args)
 			case "get_ip_routes":

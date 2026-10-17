@@ -12,7 +12,7 @@ and explains what it found.
 - Current CPU, memory, swap and I/O activity with a short vmstat sample.
 - Memory, swap, PSI pressure stalls and OOM/reclaim counters.
 - Systemd services, failed units, Docker containers and their recent logs.
-- Config files: selected lines, the end of a file or matching text.
+- Config files and directories: selected lines, matching text, or directory contents with types, sizes and symlink targets.
 - Network interfaces, routes, policy rules, neighbors, sockets and ping.
 - DNS with dig/nslookup; HTTP with curl, including bounded downloads.
 - Filter diagnostic output and save it in a private directory under `/tmp`.

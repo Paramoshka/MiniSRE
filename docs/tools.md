@@ -28,7 +28,8 @@ The `get_vmstat` probe requires procps-ng `vmstat` with `-w`, `-n`, `-y` and
 `-S K` support on the selected host. The agent does not install missing commands.
 
 File probes require GNU `sed` (with `--sandbox`), `grep`, `tail`, `readlink` and
-`stat`, locally or in the SSH user's noninteractive PATH.
+`stat`; directory listings additionally need GNU `find`, locally or in the SSH
+user's noninteractive PATH.
 
 Network probes require `ip` and `ss` from iproute2, and `ping` from iputils.
 They must also be available in the SSH user's noninteractive PATH. ICMP socket
@@ -65,6 +66,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `list_containers` | `running_only=false`, `limit=100` | Docker containers with ID, name, image, state, status and ports; includes stopped containers by default |
 | `read_file` | required `path`; `start_line=1`, `lines=100`, `tail=false` | read a line range or the last lines of one file |
 | `search_file` | required `path`, `pattern`; `limit=100`, `regex=false`, `ignore_case=false` | matching lines with line numbers from one file |
+| `list_directory` | required `path`; `limit=100` | one directory level with type, size, modification time and symlink target; hidden entries are omitted |
 | `get_ip_rules` | `family=ipv4`, optional `table` | policy routing rules, optionally filtered by referenced table |
 | `get_ip_routes` | `family=ipv4`, `table=main`, optional `interface` | routes from one table or `all` tables |
 | `get_route_to` | required IP `destination`; optional `source`, `mark`, `input_interface`, `output_interface` | the kernel's route lookup for the supplied packet attributes |
@@ -195,8 +197,18 @@ and SSH file tools and file sources in pipelines. Both the requested and resolve
 paths are checked. Ordinary diagnostics such as `/proc/meminfo` and
 `/proc/loadavg` remain available.
 
+`list_directory` returns one directory level with the entry type, size for regular
+files, modification time and, for symlinks, the target. It requires an absolute
+directory path and follows the same hidden-component rules as the file probes.
+Hidden entries are omitted, and a symlink target containing a hidden component is
+reported as `[hidden target]` instead of being disclosed. The listing does not
+recurse; use `read_file` or `search_file` on a discovered file. Up to 500 entries
+can be requested; the default is 100. Names containing control characters are
+escaped in the report.
+
 For example, ask "read lines 20 through 40 of /etc/nginx/nginx.conf on web-1",
-"show the last 50 lines of /var/log/nginx/error.log", or
+"show the last 50 lines of /var/log/nginx/error.log",
+"list /var/log/nginx on web-1", or
 "find lines matching ^listen in /etc/nginx/nginx.conf using a regular expression".
 
 These checks prevent accidental reads of hidden paths; they are not a security
@@ -304,7 +316,7 @@ marked `possibly_partial=true` in the error report.
 
 `run_pipeline` chooses a source by its existing tool name and arguments. Sources
 are all command-based diagnostic tools, including curl; `list_hosts`, `get_memory`,
-nested pipelines and all `lab_*` tools are excluded. Source arguments keep their original
+`list_directory`, nested pipelines and all `lab_*` tools are excluded. Source arguments keep their original
 validation and defaults. `host_id` belongs to the pipeline, and applies to every stage. Source
 streams contain raw command output rather than standalone human-readable
 formatting; top processes still respects its requested row limit. Interfaces

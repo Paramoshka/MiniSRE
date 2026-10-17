@@ -32,7 +32,7 @@ func validateFilePath(path string) error {
 	return nil
 }
 
-func (t *Tools) checkedFilePath(ctx context.Context, hostID, path string) (string, error) {
+func (t *Tools) checkedPath(ctx context.Context, hostID, path string, directory bool) (string, error) {
 	if err := validateFilePath(path); err != nil {
 		return "", err
 	}
@@ -56,10 +56,22 @@ func (t *Tools) checkedFilePath(ctx context.Context, hostID, path string) (strin
 		return "", errors.New("tools: stat returned an invalid file mode")
 	}
 	// GNU stat's hexadecimal mode includes the POSIX file type bits.
-	if mode&0170000 != 0100000 {
+	if directory {
+		if mode&0170000 != 0040000 {
+			return "", errors.New("tools: path must refer to a directory")
+		}
+	} else if mode&0170000 != 0100000 {
 		return "", errors.New("tools: path must refer to a regular file")
 	}
 	return resolved, nil
+}
+
+func (t *Tools) checkedFilePath(ctx context.Context, hostID, path string) (string, error) {
+	return t.checkedPath(ctx, hostID, path, false)
+}
+
+func (t *Tools) checkedDirectoryPath(ctx context.Context, hostID, path string) (string, error) {
+	return t.checkedPath(ctx, hostID, path, true)
 }
 
 func (t *Tools) readFileCommand(ctx context.Context, args toolArgs) (remote.Command, error) {
