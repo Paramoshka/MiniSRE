@@ -45,6 +45,7 @@ needed, and verifies `Linger=yes`. Sudo may ask for your password. To check:
 ```bash
 loginctl show-user "$(id -un)" -p Linger
 systemctl --user status mini-sre.service
+~/mini-sre/mini-sre --version
 journalctl --user -u mini-sre.service -f
 ```
 

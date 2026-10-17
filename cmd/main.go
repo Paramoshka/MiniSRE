@@ -24,6 +24,11 @@ import (
 	"mini-sre/internal/tools"
 )
 
+var (
+	version = "dev"
+	commit  = "unknown"
+)
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "mini-sre:", err)
@@ -39,6 +44,7 @@ func run() (err error) {
 	flag.Bool("thinking", false, "enable thinking mode; overrides DEEPSEEK_THINKING")
 	flag.String("reasoning-effort", "", "thinking effort: low, high or max; overrides DEEPSEEK_REASONING_EFFORT")
 	var (
+		showVersion   = flag.Bool("version", false, "print version and commit, then exit")
 		reasoning     = flag.Bool("reasoning", false, "print reasoning content to stderr")
 		stream        = flag.Bool("stream", true, "stream tokens as they arrive")
 		configPath    = flag.String("config", "", "host and Telegram configuration YAML (default local only)")
@@ -47,6 +53,10 @@ func run() (err error) {
 		telegramTasks = flag.String("telegram-tasks", "", "Scheduled tasks JSON file (default tasks.json beside Telegram state)")
 	)
 	flag.Parse()
+	if *showVersion {
+		fmt.Printf("MiniSRE %s (%s)\n", version, commit)
+		return nil
+	}
 
 	if err := dotenv.Load(".env"); err != nil {
 		return err

@@ -8,6 +8,8 @@ CLI flags, model settings, SSH credentials, enabled lab hosts and configuration 
 
 | Flag | Default | Description |
 |---|---|---|
+| `--version` | — | print version and short commit SHA, then exit without loading configuration or contacting APIs |
+| `--help`, `-h` | — | show available CLI flags and exit |
 | `-model` | `deepseek-flash` | model ID (`deepseek-flash`, `deepseek-v4-pro`) |
 | `-base-url` | `https://api.deepseek.com` | API base URL |
 | `-model-timeout` | `180s` | positive duration per model HTTP attempt; overrides `DEEPSEEK_TIMEOUT` |

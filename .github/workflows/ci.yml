@@ -43,16 +43,27 @@ jobs:
           CGO_ENABLED: '0'
           GOOS: linux
         run: |
+          version=dev
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="$GITHUB_REF_NAME"
+          fi
+          commit="${GITHUB_SHA:0:7}"
           for arch in amd64 arm64; do
             package="mini-sre_linux_${arch}"
             mkdir -p "dist/$package"
-            GOARCH="$arch" go build -trimpath -o "dist/$package/mini-sre" ./cmd
+            GOARCH="$arch" go build -trimpath \
+              -ldflags "-X main.version=$version -X main.commit=$commit" \
+              -o "dist/$package/mini-sre" ./cmd
             install -m 644 examples/mini-sre.service hosts.example.yaml "dist/$package/"
             tar -C "dist/$package" -czf "dist/$package.tar.gz" .
           done
           cd dist
           sha256sum mini-sre_linux_*.tar.gz > checksums.txt
           sha256sum --check checksums.txt
+          mkdir smoke
+          tar -xzf mini-sre_linux_amd64.tar.gz -C smoke
+          actual=$(smoke/mini-sre --version)
+          [[ "$actual" == "MiniSRE $version ($commit)" ]]
       - uses: actions/upload-artifact@v4
         with:
           name: mini-sre-linux
