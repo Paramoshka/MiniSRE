@@ -61,6 +61,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `search_processes` | required `pattern`; `limit=100` | case-insensitive literal name search across all visible processes, returning PID and name |
 | `get_service_status` | required `service`; `backend`, default `systemd`; `scope`, default `system` | systemd unit state or Docker container `.State` |
 | `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes` | recent journal or container logs |
+| `list_failed_services` | `scope`, default `system` | failed systemd units via `systemctl --failed`; empty output means none in that scope |
 | `read_file` | required `path`; `start_line=1`, `lines=100`, `tail=false` | read a line range or the last lines of one file |
 | `search_file` | required `path`, `pattern`; `limit=100`, `regex=false`, `ignore_case=false` | matching lines with line numbers from one file |
 | `get_ip_rules` | `family=ipv4`, optional `table` | policy routing rules, optionally filtered by referenced table |
@@ -80,6 +81,13 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `lab_destroy` | required `host_id`; `name` or `all_mine=true` | delete only registered helper-owned labs |
 
 ## Services and logs
+
+`list_failed_services` runs `systemctl --failed` and returns every failed unit,
+not only services: sockets, mounts and other unit types are included. `scope`
+defaults to `system`; `scope=user` reads the executing user's manager. An empty
+result means no failed units in that scope, not that the host has no problems.
+The command does not require root and reports permission or manager errors
+explicitly.
 
 `backend` is `systemd` or `docker`, selected per request. Systemd names may omit
 the `.service` suffix; Docker targets are container names or IDs, not Compose or

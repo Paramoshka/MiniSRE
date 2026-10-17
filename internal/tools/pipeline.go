@@ -139,15 +139,16 @@ func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
 }
 
 var pipelineCommands = map[string]func(toolArgs) (remote.Command, error){
-	"get_service_logs":    serviceLogsCommand,
-	"get_ip_rules":        ipRulesCommand,
-	"get_ip_routes":       ipRoutesCommand,
-	"get_route_to":        routeToCommand,
-	"ping_host":           pingCommand,
-	"get_network_sockets": socketsCommand,
-	"get_ip_neighbors":    neighborsCommand,
-	"dig_dns":             digCommand,
-	"nslookup_dns":        nslookupCommand,
+	"get_service_logs":     serviceLogsCommand,
+	"list_failed_services": failedServicesCommand,
+	"get_ip_rules":         ipRulesCommand,
+	"get_ip_routes":        ipRoutesCommand,
+	"get_route_to":         routeToCommand,
+	"ping_host":            pingCommand,
+	"get_network_sockets":  socketsCommand,
+	"get_ip_neighbors":     neighborsCommand,
+	"dig_dns":              digCommand,
+	"nslookup_dns":         nslookupCommand,
 }
 
 func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (remote.Stage, error) {

@@ -64,6 +64,11 @@ func Specs() []Spec {
 			Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"service":{"type":"string","description":"Systemd service name or Docker container name/ID."},"backend":{"type":"string","enum":["systemd","docker"]},"scope":{"type":"string","enum":["system","user"],"description":"Systemd only: system (default) or the executing user's service manager."}},"required":["service"],"additionalProperties":false}`),
 		},
 		{
+			Name:        "list_failed_services",
+			Description: "List failed systemd units, including services, sockets and mounts, with systemctl --failed. scope defaults to system; scope=user uses the executing user's manager. Empty output means no failed units in that scope. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"scope":{"type":"string","enum":["system","user"],"description":"Systemd manager to inspect; default system."}},"additionalProperties":false}`),
+		},
+		{
 			Name: "get_service_logs", Description: "Read recent journalctl or Docker container logs. backend defaults to systemd; scope defaults to system. Use scope=user for user systemd services; omit service for the selected journal. Defaults: 100 records from the last 60 minutes. No follow mode.",
 			Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"service":{"type":"string"},"backend":{"type":"string","enum":["systemd","docker"]},"scope":{"type":"string","enum":["system","user"],"description":"Systemd only: system (default) or the executing user's journal."},"lines":{"type":"integer","minimum":1,"maximum":500},"since_minutes":{"type":"integer","minimum":1}},"additionalProperties":false}`),
 		},
@@ -169,6 +174,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.SearchProcesses(ctx, args)
 			case "get_service_status":
 				out, err = t.ServiceStatus(ctx, args.HostID, args.ServiceTarget)
+			case "list_failed_services":
+				out, err = t.FailedServices(ctx, args.HostID, args.Scope)
 			case "get_service_logs":
 				out, err = t.ServiceLogs(ctx, args)
 			case "read_file":

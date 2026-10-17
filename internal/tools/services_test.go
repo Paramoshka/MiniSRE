@@ -66,6 +66,57 @@ func TestServiceStatus(t *testing.T) {
 	}
 }
 
+func TestFailedServices(t *testing.T) {
+	unitOutput := "nginx.service loaded failed failed nginx\nfoo.mount loaded failed failed /foo\n"
+	for _, tc := range []struct {
+		name, scope, stdout, want string
+	}{
+		{"system", "", unitOutput, "Failed systemd units (scope=system):"},
+		{"user", "user", unitOutput, "Failed systemd units (scope=user):"},
+		{"empty system", "", "", "No failed systemd units in the system scope."},
+		{"empty user", "user", "", "No failed systemd units in the user scope."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			argsFile := fakeCommand(t, "systemctl", tc.stdout, "", "0")
+			out, err := (&Tools{Runner: &remote.Runner{}}).FailedServices(context.Background(), "local", tc.scope)
+			if err != nil {
+				t.Fatalf("FailedServices: %v", err)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("FailedServices = %q, want %q", out, tc.want)
+			}
+			args, err := os.ReadFile(argsFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantArgs := "--failed\n--no-pager\n--plain\n--no-legend\n"
+			if tc.scope == "user" {
+				wantArgs = "--user\n" + wantArgs
+			}
+			if string(args) != wantArgs {
+				t.Fatalf("systemctl arguments = %q, want %q", args, wantArgs)
+			}
+		})
+	}
+}
+
+func TestFailedServicesRejectsInvalidScopeBeforeExecution(t *testing.T) {
+	argsFile := fakeCommand(t, "systemctl", "", "", "0")
+	if _, err := (&Tools{Runner: &remote.Runner{}}).FailedServices(context.Background(), "local", "docker"); err == nil {
+		t.Fatal("invalid scope accepted")
+	}
+	if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+		t.Fatal("systemctl ran before scope validation")
+	}
+}
+
+func TestFailedServicesCommandError(t *testing.T) {
+	fakeCommand(t, "systemctl", "", "Failed to connect to bus\n", "1")
+	if _, err := (&Tools{Runner: &remote.Runner{}}).FailedServices(context.Background(), "local", "user"); err == nil {
+		t.Fatal("systemctl failure was hidden")
+	}
+}
+
 func TestServiceLogs(t *testing.T) {
 	for _, backend := range []string{"systemd", "docker"} {
 		t.Run(backend, func(t *testing.T) {

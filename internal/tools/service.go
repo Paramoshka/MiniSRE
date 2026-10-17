@@ -67,6 +67,40 @@ func serviceStatusCommand(target ServiceTarget) (remote.Command, ServiceTarget, 
 	return remote.Command{Program: "docker", Args: []string{"inspect", "--type=container", "--format={{json .State}}", "--", target.Name}}, target, nil
 }
 
+func failedServicesCommand(args toolArgs) (remote.Command, error) {
+	scope := args.Scope
+	if scope == "" {
+		scope = "system"
+	}
+	if scope != "system" && scope != "user" {
+		return remote.Command{}, errors.New("tools: scope must be system or user")
+	}
+	flags := []string{}
+	if scope == "user" {
+		flags = append(flags, "--user")
+	}
+	flags = append(flags, "--failed", "--no-pager", "--plain", "--no-legend")
+	return remote.Command{Program: "systemctl", Args: flags}, nil
+}
+
+func (t *Tools) FailedServices(ctx context.Context, hostID, scope string) (string, error) {
+	cmd, err := failedServicesCommand(toolArgs{ServiceTarget: ServiceTarget{Scope: scope}})
+	if err != nil {
+		return "", err
+	}
+	result, err := t.command(ctx, hostID, cmd.Program, cmd.Args...)
+	if err != nil {
+		return "", err
+	}
+	if scope == "" {
+		scope = "system"
+	}
+	if strings.TrimSpace(result.Stdout) == "" {
+		return fmt.Sprintf("No failed systemd units in the %s scope.", scope), nil
+	}
+	return fmt.Sprintf("Failed systemd units (scope=%s):\n%s", scope, commandOutput(result)), nil
+}
+
 func (t *Tools) ServiceStatus(ctx context.Context, hostID string, target ServiceTarget) (string, error) {
 	cmd, target, err := serviceStatusCommand(target)
 	if err != nil {
