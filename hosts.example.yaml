@@ -3,11 +3,19 @@ language: ru # ru or en; response language, default ru.
 known_hosts: known_hosts
 
 hosts:
+  bastion-1:
+    address: 203.0.113.10
+    user: sre
+    key_file: keys/sre_ed25519
+
   web-1:
     address: 192.168.1.20
     port: 22
     user: sre
     key_file: keys/sre_ed25519
+    # Optional: reach this host through one other configured host.
+    # The address above is resolved and opened by bastion-1.
+    jump_host: bastion-1
 
   storage-1:
     address: 192.168.1.30

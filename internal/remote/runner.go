@@ -27,6 +27,7 @@ import (
 const (
 	commandTimeout = 15 * time.Second
 	outputLimit    = 64 * 1024
+	maxJumpDepth   = 1
 )
 
 type Runner struct {
@@ -124,78 +125,27 @@ func (r *Runner) runInput(ctx context.Context, hostID string, processGroup bool,
 }
 
 func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, input io.Reader, program string, args []string, stdout, stderr *limitedBuffer) error {
-	host, ok := r.Config.Hosts[id]
-	if !ok {
-		return errors.New("unknown host")
-	}
-	var auth ssh.AuthMethod
-	if host.KeyFile != "" {
-		key, err := os.ReadFile(host.KeyFile)
-		if err != nil {
-			log.Printf("SSH host=%q phase=key_file error=%q", r.Redact(id), r.Redact(err.Error()))
-			return errors.New("cannot read SSH key file")
-		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			return errors.New("SSH key must be a valid unencrypted private key")
-		}
-		auth = ssh.PublicKeys(signer)
-	} else {
-		auth = ssh.Password(host.Password)
-	}
-	verify, err := knownhosts.New(r.Config.KnownHosts)
+	conn, err := r.dialSSH(ctx, id, 0)
 	if err != nil {
-		log.Printf("SSH host=%q phase=known_hosts error=%q", r.Redact(id), r.Redact(err.Error()))
-		return errors.New("cannot load known_hosts file")
-	}
-	port := host.Port
-	if port == 0 {
-		port = 22
-	}
-	address := net.JoinHostPort(host.Address, strconv.Itoa(port))
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
-	if err != nil {
-		log.Printf("SSH host=%q phase=connect error=%q", r.Redact(id), r.Redact(err.Error()))
-		return errors.New("cannot connect to SSH server")
+		return err
 	}
 	defer conn.Close()
+	session, err := conn.client.NewSession()
+	if err != nil {
+		r.logSSH(id, "session", err)
+		return errors.New("cannot open SSH session")
+	}
+	defer session.Close()
 	var signalSession atomic.Pointer[ssh.Session]
 	stop := context.AfterFunc(ctx, func() {
 		if session := signalSession.Load(); session != nil {
 			// Best effort; the independent remote watchdog handles lost connections.
-			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+			_ = conn.transport.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
 			session.Signal(ssh.SIGTERM)
 		}
-		conn.Close()
+		conn.transport.Close()
 	})
 	defer stop()
-	deadline, _ := ctx.Deadline()
-	if err := conn.SetDeadline(deadline); err != nil {
-		return errors.New("cannot set SSH deadline")
-	}
-	clientConn, channels, requests, err := ssh.NewClientConn(conn, address, &ssh.ClientConfig{
-		User: host.User, Auth: []ssh.AuthMethod{auth}, HostKeyCallback: verify,
-		HostKeyAlgorithms: knownHostAlgorithms(verify, address, conn.RemoteAddr()),
-	})
-	if err != nil {
-		log.Printf("SSH host=%q phase=handshake error=%q", r.Redact(id), r.Redact(err.Error()))
-		var keyErr *knownhosts.KeyError
-		if errors.As(err, &keyErr) {
-			if len(keyErr.Want) == 0 {
-				return errors.New("SSH host key is unknown in known_hosts")
-			}
-			return errors.New("SSH host key does not match known_hosts")
-		}
-		return errors.New("SSH handshake or authentication failed")
-	}
-	client := ssh.NewClient(clientConn, channels, requests)
-	defer client.Close()
-	session, err := client.NewSession()
-	if err != nil {
-		log.Printf("SSH host=%q phase=session error=%q", r.Redact(id), r.Redact(err.Error()))
-		return errors.New("cannot open SSH session")
-	}
-	defer session.Close()
 	if processGroup {
 		signalSession.Store(session)
 	}
@@ -206,6 +156,122 @@ func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, input
 		command += " " + shellQuote(arg)
 	}
 	return session.Run(command)
+}
+
+type sshClient struct {
+	client    *ssh.Client
+	transport net.Conn
+	parent    *sshClient
+	stop      func() bool
+	closeOnce sync.Once
+}
+
+func (c *sshClient) Close() {
+	c.closeOnce.Do(func() {
+		c.stop()
+		_ = c.client.Close()
+		_ = c.transport.Close()
+		if c.parent != nil {
+			c.parent.Close()
+		}
+	})
+}
+
+func (r *Runner) dialSSH(ctx context.Context, id string, depth int) (*sshClient, error) {
+	if depth > maxJumpDepth {
+		return nil, errors.New("SSH jump_host chain is too deep")
+	}
+	host, ok := r.Config.Hosts[id]
+	if !ok {
+		return nil, errors.New("unknown host")
+	}
+	auth, err := r.sshAuth(id, host)
+	if err != nil {
+		return nil, err
+	}
+	verify, err := knownhosts.New(r.Config.KnownHosts)
+	if err != nil {
+		r.logSSH(id, "known_hosts", err)
+		return nil, errors.New("cannot load known_hosts file")
+	}
+	port := host.Port
+	if port == 0 {
+		port = 22
+	}
+	address := net.JoinHostPort(host.Address, strconv.Itoa(port))
+	var parent *sshClient
+	var transport net.Conn
+	if host.JumpHost != "" {
+		parent, err = r.dialSSH(ctx, host.JumpHost, depth+1)
+		if err != nil {
+			return nil, fmt.Errorf("jump host %q: %w", host.JumpHost, err)
+		}
+		transport, err = parent.client.DialContext(ctx, "tcp", address)
+		if err != nil {
+			parent.Close()
+			r.logSSH(id, "jump_connect", err)
+			return nil, errors.New("cannot connect through jump host")
+		}
+	} else {
+		transport, err = (&net.Dialer{}).DialContext(ctx, "tcp", address)
+		if err != nil {
+			r.logSSH(id, "connect", err)
+			return nil, errors.New("cannot connect to SSH server")
+		}
+		if deadline, ok := ctx.Deadline(); ok {
+			if err := transport.SetDeadline(deadline); err != nil {
+				_ = transport.Close()
+				return nil, errors.New("cannot set SSH deadline")
+			}
+		}
+	}
+	stop := context.AfterFunc(ctx, func() { transport.Close() })
+	clientConn, channels, requests, err := ssh.NewClientConn(transport, address, &ssh.ClientConfig{
+		User: host.User, Auth: []ssh.AuthMethod{auth}, HostKeyCallback: verify,
+		HostKeyAlgorithms: knownHostAlgorithms(verify, address, transport.RemoteAddr()),
+	})
+	if err != nil {
+		stop()
+		_ = transport.Close()
+		if parent != nil {
+			parent.Close()
+		}
+		r.logSSH(id, "handshake", err)
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) {
+			if len(keyErr.Want) == 0 {
+				return nil, errors.New("SSH host key is unknown in known_hosts")
+			}
+			return nil, errors.New("SSH host key does not match known_hosts")
+		}
+		return nil, errors.New("SSH handshake or authentication failed")
+	}
+	client := ssh.NewClient(clientConn, channels, requests)
+	return &sshClient{client: client, transport: transport, parent: parent, stop: stop}, nil
+}
+
+func (r *Runner) sshAuth(id string, host config.Host) (ssh.AuthMethod, error) {
+	if host.KeyFile != "" {
+		key, err := os.ReadFile(host.KeyFile)
+		if err != nil {
+			r.logSSH(id, "key_file", err)
+			return nil, errors.New("cannot read SSH key file")
+		}
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			return nil, errors.New("SSH key must be a valid unencrypted private key")
+		}
+		return ssh.PublicKeys(signer), nil
+	}
+	return ssh.Password(host.Password), nil
+}
+
+func (r *Runner) logSSH(id, phase string, err error) {
+	if host, ok := r.Config.Hosts[id]; ok && host.JumpHost != "" {
+		log.Printf("SSH host=%q via=%q phase=%s error=%q", r.Redact(id), r.Redact(host.JumpHost), phase, r.Redact(err.Error()))
+		return
+	}
+	log.Printf("SSH host=%q phase=%s error=%q", r.Redact(id), phase, r.Redact(err.Error()))
 }
 
 func knownHostAlgorithms(verify ssh.HostKeyCallback, address string, remote net.Addr) []string {

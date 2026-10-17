@@ -115,10 +115,22 @@ Each host needs `address`, `user` and exactly one of `key_file` or `password`.
 The default port is 22. Passwords are literal YAML strings, not environment
 references. Keys with a passphrase are not supported in this MVP.
 
+Optional `jump_host: bastion-1` reaches a host through one other configured host
+using an SSH `direct-tcpip` tunnel. The target `address` and `port` are resolved
+and opened by the jump host, so they describe the target as seen from that host.
+The target host key is matched against this configured address. Each hop
+authenticates with its own `user` and `key_file` or `password`; both server keys
+are checked against `known_hosts`. The jump host must allow TCP
+forwarding (`AllowTcpForwarding`, enabled by default in OpenSSH). Only one
+level is supported: a host used as `jump_host` cannot have `jump_host` itself.
+Unknown, self-referencing and nested references are rejected at startup and on
+reload. Jump hosts are regular host IDs and also appear in `list_hosts`.
+
 Relative `key_file` and `known_hosts` paths are resolved against the YAML file's
 directory. Omit `known_hosts` to use the current user's `~/.ssh/known_hosts`.
-The file must contain the server's independently verified host key; unknown or
-changed host keys are rejected. The agent does not add keys automatically.
+The file must contain the independently verified host key of every SSH hop;
+unknown or changed host keys are rejected. The agent does not add keys
+automatically.
 
 With `-config`, the YAML is watched and reloaded after saving, including when an
 editor atomically replaces the file. Language, hosts, `known_hosts` and Telegram

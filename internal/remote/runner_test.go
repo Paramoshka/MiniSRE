@@ -288,7 +288,7 @@ func testSSH(t *testing.T, useKey bool, hostKeys ...ssh.Signer) *Runner {
 			if err != nil {
 				return
 			}
-			wg.Go(func() { serveSSH(conn, serverConfig) })
+			wg.Go(func() { serveSSH(conn, serverConfig, nil) })
 		}
 	})
 	t.Cleanup(func() { l.Close(); wg.Wait() })
@@ -313,7 +313,7 @@ func testSSH(t *testing.T, useKey bool, hostKeys ...ssh.Signer) *Runner {
 	return &Runner{Config: config.Config{KnownHosts: knownFile, Hosts: map[string]config.Host{"web": host}}}
 }
 
-func serveSSH(conn net.Conn, cfg *ssh.ServerConfig) {
+func serveSSH(conn net.Conn, cfg *ssh.ServerConfig, forward func(string, uint32) (string, bool)) {
 	defer conn.Close()
 	server, channels, requests, err := ssh.NewServerConn(conn, cfg)
 	if err != nil {
@@ -328,6 +328,10 @@ func serveSSH(conn net.Conn, cfg *ssh.ServerConfig) {
 		cancel()
 	}()
 	for newChannel := range channels {
+		if newChannel.ChannelType() == "direct-tcpip" {
+			serveDirectTCPIP(newChannel, forward)
+			continue
+		}
 		if newChannel.ChannelType() != "session" {
 			newChannel.Reject(ssh.UnknownChannelType, "session only")
 			continue
@@ -371,6 +375,269 @@ func serveSSH(conn net.Conn, cfg *ssh.ServerConfig) {
 			}
 		}()
 		<-finished
+	}
+}
+
+type testSSHHost struct {
+	listener net.Listener
+	hostKey  ssh.Signer
+}
+
+func startTestSSH(t *testing.T, hostKey, authKey ssh.Signer, password string, forward func(string, uint32) (string, bool)) *testSSHHost {
+	t.Helper()
+	serverConfig := &ssh.ServerConfig{}
+	if password != "" {
+		serverConfig.PasswordCallback = func(_ ssh.ConnMetadata, value []byte) (*ssh.Permissions, error) {
+			if string(value) != password {
+				return nil, errors.New("bad password")
+			}
+			return nil, nil
+		}
+	}
+	if authKey != nil {
+		serverConfig.PublicKeyCallback = func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			if !bytes.Equal(key.Marshal(), authKey.PublicKey().Marshal()) {
+				return nil, errors.New("bad key")
+			}
+			return nil, nil
+		}
+	}
+	serverConfig.AddHostKey(hostKey)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			wg.Go(func() { serveSSH(conn, serverConfig, forward) })
+		}
+	})
+	t.Cleanup(func() { listener.Close(); wg.Wait() })
+	return &testSSHHost{listener: listener, hostKey: hostKey}
+}
+
+func newTestSigner(t *testing.T) (ssh.Signer, ed25519.PrivateKey) {
+	t.Helper()
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer, private
+}
+
+type jumpTest struct {
+	runner  *Runner
+	known   string
+	bastion *testSSHHost
+	target  *testSSHHost
+}
+
+func testSSHJump(t *testing.T, useKey bool) *jumpTest {
+	t.Helper()
+	bastionKey, _ := newTestSigner(t)
+	targetKey, _ := newTestSigner(t)
+	authSigner, authPrivate := newTestSigner(t)
+	var authKey ssh.Signer
+	var keyFile string
+	if useKey {
+		authKey = authSigner
+		block, err := ssh.MarshalPrivateKey(authPrivate, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyFile = filepath.Join(t.TempDir(), "key")
+		if err := os.WriteFile(keyFile, pem.EncodeToMemory(block), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := startTestSSH(t, targetKey, authKey, "target-password", nil)
+	bastion := startTestSSH(t, bastionKey, authKey, "bastion-password", func(addr string, port uint32) (string, bool) {
+		if addr == "target.internal" && port == 22 {
+			return target.listener.Addr().String(), true
+		}
+		return "", false
+	})
+	known := filepath.Join(t.TempDir(), "known_hosts")
+	lines := knownhosts.Line([]string{bastion.listener.Addr().String()}, bastionKey.PublicKey()) + "\n" +
+		knownhosts.Line([]string{"target.internal:22"}, targetKey.PublicKey()) + "\n"
+	if err := os.WriteFile(known, []byte(lines), 0600); err != nil {
+		t.Fatal(err)
+	}
+	bastionHost := config.Host{
+		Address: "127.0.0.1", Port: bastion.listener.Addr().(*net.TCPAddr).Port,
+		User: "sre", Password: "bastion-password",
+	}
+	targetHost := config.Host{
+		Address: "target.internal", Port: 22, User: "sre", Password: "target-password",
+		JumpHost: "bastion",
+	}
+	if useKey {
+		bastionHost.Password, targetHost.Password = "", ""
+		bastionHost.KeyFile, targetHost.KeyFile = keyFile, keyFile
+	}
+	return &jumpTest{
+		runner: &Runner{Config: config.Config{KnownHosts: known, Hosts: map[string]config.Host{
+			"bastion": bastionHost,
+			"web":     targetHost,
+		}}},
+		known: known, bastion: bastion, target: target,
+	}
+}
+
+func serveDirectTCPIP(newChannel ssh.NewChannel, forward func(string, uint32) (string, bool)) {
+	var request struct {
+		DestAddr   string
+		DestPort   uint32
+		OriginAddr string
+		OriginPort uint32
+	}
+	if err := ssh.Unmarshal(newChannel.ExtraData(), &request); err != nil || forward == nil {
+		_ = newChannel.Reject(ssh.ConnectionFailed, "forwarding disabled")
+		return
+	}
+	address, ok := forward(request.DestAddr, request.DestPort)
+	if !ok {
+		_ = newChannel.Reject(ssh.ConnectionFailed, "destination not allowed")
+		return
+	}
+	target, err := net.Dial("tcp", address)
+	if err != nil {
+		_ = newChannel.Reject(ssh.ConnectionFailed, "connect failed")
+		return
+	}
+	channel, requests, err := newChannel.Accept()
+	if err != nil {
+		_ = target.Close()
+		return
+	}
+	go ssh.DiscardRequests(requests)
+	go func() {
+		defer target.Close()
+		defer channel.Close()
+		_, _ = io.Copy(target, channel)
+	}()
+	go func() {
+		defer target.Close()
+		defer channel.Close()
+		_, _ = io.Copy(channel, target)
+	}()
+}
+
+func TestSSHCommandsViaJump(t *testing.T) {
+	for _, useKey := range []bool{false, true} {
+		t.Run(fmt.Sprintf("key=%v", useKey), func(t *testing.T) {
+			setup := testSSHJump(t, useKey)
+			result, err := setup.runner.Run(context.Background(), "web", "printf", "%s", "via jump")
+			if err != nil || result.Stdout != "via jump" || result.ExitCode != 0 {
+				t.Fatalf("jump command: %+v, %v", result, err)
+			}
+			result, err = setup.runner.Run(context.Background(), "web", "sh", "-c", "printf failure >&2; exit 7")
+			if err == nil || result.Stderr != "failure" || result.ExitCode != 7 {
+				t.Fatalf("jump exit failure: %+v, %v", result, err)
+			}
+			result, err = setup.runner.Run(context.Background(), "bastion", "printf", "%s", "direct")
+			if err != nil || result.Stdout != "direct" {
+				t.Fatalf("direct bastion command: %+v, %v", result, err)
+			}
+		})
+	}
+}
+
+func TestSSHJumpHostKeyVerification(t *testing.T) {
+	setup := testSSHJump(t, false)
+	bastionLine := knownhosts.Line([]string{setup.bastion.listener.Addr().String()}, setup.bastion.hostKey.PublicKey())
+	targetLine := knownhosts.Line([]string{"target.internal:22"}, setup.target.hostKey.PublicKey())
+	if err := os.WriteFile(setup.known, []byte(bastionLine+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setup.runner.Run(context.Background(), "web", "true"); err == nil || !strings.Contains(err.Error(), "host key") {
+		t.Fatalf("unknown target host key: %v", err)
+	}
+	if err := os.WriteFile(setup.known, []byte(targetLine+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setup.runner.Run(context.Background(), "web", "true"); err == nil || !strings.Contains(err.Error(), "host key") {
+		t.Fatalf("unknown bastion host key: %v", err)
+	}
+	_, wrongPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongSigner, err := ssh.NewSignerFromKey(wrongPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongLine := knownhosts.Line([]string{"target.internal:22"}, wrongSigner.PublicKey())
+	if err := os.WriteFile(setup.known, []byte(bastionLine+"\n"+wrongLine+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setup.runner.Run(context.Background(), "web", "true"); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("changed target host key: %v", err)
+	}
+}
+
+func TestSSHJumpRejectsForwarding(t *testing.T) {
+	setup := testSSHJump(t, false)
+	host := setup.runner.Config.Hosts["web"]
+	host.Address = "blocked.internal"
+	setup.runner.Config.Hosts["web"] = host
+	if _, err := setup.runner.Run(context.Background(), "web", "true"); err == nil || !strings.Contains(err.Error(), "through jump host") {
+		t.Fatalf("rejected forwarding: %v", err)
+	}
+}
+
+func TestSSHJumpAuthenticationFailures(t *testing.T) {
+	setup := testSSHJump(t, false)
+	host := setup.runner.Config.Hosts["web"]
+	host.Password = "wrong-target-password"
+	setup.runner.Config.Hosts["web"] = host
+	if _, err := setup.runner.Run(context.Background(), "web", "true"); err == nil ||
+		!strings.Contains(err.Error(), "authentication") || strings.Contains(err.Error(), host.Password) {
+		t.Fatalf("target authentication failure: %v", err)
+	}
+
+	setup = testSSHJump(t, false)
+	bastion := setup.runner.Config.Hosts["bastion"]
+	bastion.Password = "wrong-bastion-password"
+	setup.runner.Config.Hosts["bastion"] = bastion
+	if _, err := setup.runner.Run(context.Background(), "web", "true"); err == nil ||
+		!strings.Contains(err.Error(), `jump host "bastion"`) ||
+		!strings.Contains(err.Error(), "authentication") || strings.Contains(err.Error(), bastion.Password) {
+		t.Fatalf("bastion authentication failure: %v", err)
+	}
+}
+
+func TestSSHJumpLogsBastion(t *testing.T) {
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previousOutput) })
+	setup := testSSHJump(t, false)
+	host := setup.runner.Config.Hosts["web"]
+	host.Password = "wrong-target-password"
+	setup.runner.Config.Hosts["web"] = host
+	_, _ = setup.runner.Run(context.Background(), "web", "true")
+	if !strings.Contains(logs.String(), `host="web" via="bastion" phase=handshake`) ||
+		strings.Contains(logs.String(), host.Password) {
+		t.Fatalf("jump diagnostic: %s", logs.String())
+	}
+}
+
+func TestSSHJumpCancellation(t *testing.T) {
+	setup := testSSHJump(t, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if result, err := setup.runner.Run(ctx, "web", "sleep", "10"); !errors.Is(err, context.DeadlineExceeded) || result.ExitCode != -1 {
+		t.Fatalf("jump cancellation: %+v, %v", result, err)
 	}
 }
 
