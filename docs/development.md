@@ -13,7 +13,40 @@ go vet ./...
 go test -race ./...
 ```
 
-Layout:
+## CI and releases
+
+[CI and release](../.github/workflows/ci.yml) runs these checks on pushes to
+`main`, pull requests and version tags. It uses the Go version from `go.mod`.
+After the checks pass, it builds Linux `amd64` and `arm64` binaries with CGO
+disabled and uploads a `mini-sre-linux` workflow artifact (retained for 14 days).
+Each archive contains `mini-sre`, the example user service and `hosts.example.yaml`.
+`checksums.txt` contains SHA256 hashes for both archives.
+
+To publish a release, push a stable version tag on the commit you want to ship:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Use a new `vMAJOR.MINOR.PATCH` tag for each release. Once checks and both builds
+pass, the workflow verifies the artifacts, uploads them to a draft GitHub Release,
+then publishes it as the latest release. If publication fails, inspect
+the run and any draft release before retrying; the workflow does not overwrite
+existing releases. GitHub Actions must be enabled for the repository.
+
+Published assets are available without a Go installation or an Actions login:
+
+```text
+https://github.com/Paramoshka/mini-sre/releases/latest/download/mini-sre_linux_amd64.tar.gz
+https://github.com/Paramoshka/mini-sre/releases/latest/download/mini-sre_linux_arm64.tar.gz
+https://github.com/Paramoshka/mini-sre/releases/latest/download/checksums.txt
+```
+
+The `latest` URLs become available after the first successful release. The
+archives use stable filenames so the installer can select one by architecture.
+
+## Package layout
 
 - `internal/agent` - DeepSeek client: Chat, ChatStream (iterator), tool calls, its own
   types, the SDK does not leak outside;
