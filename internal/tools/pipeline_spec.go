@@ -3,10 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"strings"
 )
 
-func pipelineDefinition(sources []Spec) Definition {
+func pipelineDefinition(sources []Definition) Definition {
 	spec := pipelineSpec(sources)
 	return Definition{
 		Name: spec.Name, Description: spec.Description, Parameters: spec.Parameters,
@@ -16,18 +15,10 @@ func pipelineDefinition(sources []Spec) Definition {
 	}
 }
 
-func pipelineExcluded(name string) bool {
-	switch name {
-	case "list_hosts", "run_pipeline", "get_memory", "list_directory", "check_tls_certificate":
-		return true
-	}
-	return strings.HasPrefix(name, "lab_")
-}
-
-func pipelineSpec(sources []Spec) Spec {
+func pipelineSpec(sources []Definition) Spec {
 	var variants []any
 	for _, source := range sources {
-		if pipelineExcluded(source.Name) {
+		if source.Pipeline == nil {
 			continue
 		}
 		var schema map[string]any

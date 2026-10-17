@@ -124,6 +124,16 @@ func decodeObject(raw json.RawMessage, target any) error {
 	return nil
 }
 
+func schemaProperties(parameters json.RawMessage) (map[string]json.RawMessage, error) {
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(parameters, &schema); err != nil {
+		return nil, errors.New("tools: invalid tool schema")
+	}
+	return schema.Properties, nil
+}
+
 // validateArgKeys rejects top-level arguments that the tool schema does not
 // declare, so fields belonging to other tools cannot be silently ignored.
 func validateArgKeys(parameters, raw json.RawMessage) error {
@@ -134,14 +144,12 @@ func validateArgKeys(parameters, raw json.RawMessage) error {
 	if err := decodeObject(raw, &args); err != nil {
 		return err
 	}
-	var schema struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-	}
-	if err := json.Unmarshal(parameters, &schema); err != nil {
-		return errors.New("tools: invalid tool schema")
+	properties, err := schemaProperties(parameters)
+	if err != nil {
+		return err
 	}
 	for key := range args {
-		if _, ok := schema.Properties[key]; !ok {
+		if _, ok := properties[key]; !ok {
 			return errors.New("tools: invalid arguments; check field names and types")
 		}
 	}

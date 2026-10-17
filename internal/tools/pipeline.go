@@ -100,11 +100,10 @@ func pipelineStageSucceeded(source string, filters []pipelineFilter, index, code
 		return true
 	}
 	if index == 0 {
-		switch source {
-		case "ping_host", "search_file", "search_processes":
-			return code == 1
-		case "check_tcp_port":
-			return code == 1 || code == 124
+		for _, def := range baseDefinitions() {
+			if def.Name == source && def.Pipeline != nil && def.Pipeline.ExitOK != nil {
+				return def.Pipeline.ExitOK(code)
+			}
 		}
 		return false
 	}
@@ -113,17 +112,15 @@ func pipelineStageSucceeded(source string, filters []pipelineFilter, index, code
 
 func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
 	var args toolArgs
-	if pipelineExcluded(name) {
-		return args, errors.New("tools: invalid pipeline source")
-	}
-	for _, spec := range Specs() {
-		if spec.Name != name {
+	for _, def := range baseDefinitions() {
+		if def.Name != name {
 			continue
 		}
-		var schema struct {
-			Properties map[string]json.RawMessage `json:"properties"`
+		if def.Pipeline == nil {
+			return args, errors.New("tools: invalid pipeline source")
 		}
-		if err := json.Unmarshal(spec.Parameters, &schema); err != nil {
+		properties, err := schemaProperties(def.Parameters)
+		if err != nil {
 			return args, err
 		}
 		var fields map[string]json.RawMessage
@@ -133,7 +130,7 @@ func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
 			}
 		}
 		for key := range fields {
-			if _, ok := schema.Properties[key]; !ok || key == "host_id" {
+			if _, ok := properties[key]; !ok || key == "host_id" {
 				return args, errors.New("tools: invalid source argument; host_id belongs to the pipeline")
 			}
 		}
@@ -142,76 +139,17 @@ func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
 	return args, errors.New("tools: unknown pipeline source")
 }
 
-var pipelineCommands = map[string]func(toolArgs) (remote.Command, error){
-	"get_service_logs":     serviceLogsCommand,
-	"list_failed_services": failedServicesCommand,
-	"get_ip_rules":         ipRulesCommand,
-	"get_ip_routes":        ipRoutesCommand,
-	"get_route_to":         routeToCommand,
-	"ping_host":            pingCommand,
-	"check_tcp_port":       tcpCommand,
-	"get_network_sockets":  socketsCommand,
-	"get_ip_neighbors":     neighborsCommand,
-	"dig_dns":              digCommand,
-	"nslookup_dns":         nslookupCommand,
-}
-
 func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (remote.Stage, error) {
-	if build, ok := pipelineCommands[name]; ok {
-		cmd, err := build(args)
-		if err != nil {
-			return remote.Stage{}, err
+	for _, def := range baseDefinitions() {
+		if def.Name != name {
+			continue
 		}
-		return remote.Stage{Commands: []remote.Command{cmd}}, nil
+		if def.Pipeline == nil {
+			return remote.Stage{}, errors.New("tools: unsupported pipeline source")
+		}
+		return def.Pipeline.Stage(ctx, t, args)
 	}
-	// These sources need context, multiple commands, or additional stage settings.
-	var cmd remote.Command
-	var err error
-	stage := remote.Stage{}
-	switch name {
-	case "get_load_average":
-		cmd = loadCommand()
-	case "get_vmstat":
-		cmd = vmstatCommand()
-	case "get_disk_usage":
-		cmd = diskCommand(args.Path)
-	case "get_top_processes":
-		if args.SortBy == "cpu_interval" {
-			return stage, errors.New("tools: cpu_interval is not supported as a pipeline source")
-		}
-		var limit int
-		cmd, _, limit, err = processCommand(args)
-		stage.HeadLines = limit + 1
-	case "search_processes":
-		var limit int
-		cmd, limit, err = processSearchCommand(args)
-		stage.HeadLines = limit
-	case "get_service_status":
-		cmd, _, err = serviceStatusCommand(args.ServiceTarget)
-	case "list_containers":
-		var limit int
-		cmd, limit, err = containersCommand(args)
-		stage.HeadLines = limit
-	case "read_file":
-		cmd, err = t.readFileCommand(ctx, args)
-	case "search_file":
-		cmd, err = t.searchFileCommand(ctx, args)
-	case "get_network_interfaces":
-		stage.Commands, err = interfacesCommands(args)
-		return stage, err
-	case "curl_http":
-		if args.Download {
-			return stage, errors.New("tools: pipeline source cannot use download; use stdout=file instead")
-		}
-		cmd, _, err = curlCommand(args)
-		if err == nil {
-			err = t.checkCurlVersion(ctx, args.HostID)
-		}
-	default:
-		return stage, errors.New("tools: unsupported pipeline source")
-	}
-	stage.Commands = []remote.Command{cmd}
-	return stage, err
+	return remote.Stage{}, errors.New("tools: unsupported pipeline source")
 }
 
 func filterStage(filter pipelineFilter) (remote.Stage, error) {
