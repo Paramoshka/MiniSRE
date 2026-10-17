@@ -237,6 +237,29 @@ func filterStage(filter pipelineFilter) (remote.Stage, error) {
 			cmd.Args = append(cmd.Args, "-v")
 		}
 		cmd.Args = append(cmd.Args, "-e", filter.Pattern)
+	case "count":
+		if filter.Pattern != "" || filter.Regex || filter.Invert || filter.Lines != nil || filter.StartLine != nil {
+			return remote.Stage{}, errors.New("tools: count does not accept pattern, regex, invert or line-range arguments")
+		}
+		limit := 20
+		if filter.Limit != nil {
+			limit = *filter.Limit
+		}
+		if limit < 1 || limit > 500 {
+			return remote.Stage{}, errors.New("tools: count limit must be 1..500")
+		}
+		sortCommand := remote.Command{Program: "sort"}
+		uniqCommand := remote.Command{Program: "uniq", Args: []string{"-c"}}
+		if filter.IgnoreCase {
+			sortCommand.Args = append(sortCommand.Args, "-f")
+			uniqCommand.Args = append(uniqCommand.Args, "-i")
+		}
+		return remote.Stage{Pipe: []remote.Command{
+			sortCommand,
+			uniqCommand,
+			{Program: "sort", Args: []string{"-rn"}},
+			{Program: "head", Args: []string{"-n", strconv.Itoa(limit)}},
+		}, Drain: true}, nil
 	case "head", "tail", "sed":
 		if filter.Pattern != "" || filter.Regex || filter.IgnoreCase || filter.Invert || filter.Limit != nil || (filter.Type != "sed" && filter.StartLine != nil) {
 			return remote.Stage{}, errors.New("tools: invalid line-filter arguments")
@@ -256,7 +279,7 @@ func filterStage(filter pipelineFilter) (remote.Stage, error) {
 			cmd.Args = []string{"--sandbox", "-n", fmt.Sprintf("%d,%dp;%dq", start, start+lines-1, start+lines-1)}
 		}
 	default:
-		return remote.Stage{}, errors.New("tools: filter must be grep, head, tail or sed")
+		return remote.Stage{}, errors.New("tools: filter must be grep, head, tail, sed or count")
 	}
 	return remote.Stage{Commands: []remote.Command{cmd}, Drain: true}, nil
 }

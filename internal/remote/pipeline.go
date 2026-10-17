@@ -25,6 +25,7 @@ type Command struct {
 
 type Stage struct {
 	Commands  []Command // A source may contain multiple sequential commands.
+	Pipe      []Command // Commands joined by shell pipes; mutually exclusive with Commands.
 	Drain     bool      // Keep consuming stdin after a limiting filter finishes.
 	HeadLines int       // Preserve the top-process source's row limit.
 }
@@ -153,27 +154,34 @@ func pipelineScript(plan Pipeline) (string, error) {
 }
 
 func stageScript(stage Stage, mergeStderr bool) (string, error) {
-	if len(stage.Commands) == 0 {
+	if len(stage.Commands) == 0 && len(stage.Pipe) == 0 {
 		return "", errors.New("pipeline: empty stage")
 	}
-	var commands []string
-	for _, cmd := range stage.Commands {
-		if cmd.Program == "" || strings.ContainsRune(cmd.Program, 0) {
-			return "", errors.New("pipeline: invalid program")
-		}
-		command := shellQuote(cmd.Program)
-		for _, arg := range cmd.Args {
-			if strings.ContainsRune(arg, 0) {
-				return "", errors.New("pipeline: NUL in argument")
-			}
-			command += " " + shellQuote(arg)
-		}
-		if cmd.HTTPMetadata {
-			command += ` --dump-header "$dir/headers" --write-out "%output{$dir/http}%{http_code}\n%{remote_ip}\n%{time_total}\n%{url_effective}\n"`
-		}
-		commands = append(commands, command+" || exit $?")
+	if len(stage.Commands) > 0 && len(stage.Pipe) > 0 {
+		return "", errors.New("pipeline: stage cannot mix sequential commands and a pipe")
 	}
-	body := "( " + strings.Join(commands, "; ") + " )"
+	var body string
+	if len(stage.Pipe) > 0 {
+		parts := make([]string, 0, len(stage.Pipe))
+		for _, cmd := range stage.Pipe {
+			command, err := commandString(cmd)
+			if err != nil {
+				return "", err
+			}
+			parts = append(parts, command)
+		}
+		body = "( " + strings.Join(parts, " | ") + " )"
+	} else {
+		commands := make([]string, 0, len(stage.Commands))
+		for _, cmd := range stage.Commands {
+			command, err := commandString(cmd)
+			if err != nil {
+				return "", err
+			}
+			commands = append(commands, command+" || exit $?")
+		}
+		body = "( " + strings.Join(commands, "; ") + " )"
+	}
 	if stage.HeadLines > 0 {
 		body = fmt.Sprintf(`( %s | { head -n %d; cat >/dev/null; }; codes=("${PIPESTATUS[@]}"); exit "${codes[0]}" )`, body, stage.HeadLines)
 	}
@@ -184,6 +192,23 @@ func stageScript(stage Stage, mergeStderr bool) (string, error) {
 		body += " 2>&1"
 	}
 	return body, nil
+}
+
+func commandString(cmd Command) (string, error) {
+	if cmd.Program == "" || strings.ContainsRune(cmd.Program, 0) {
+		return "", errors.New("pipeline: invalid program")
+	}
+	command := shellQuote(cmd.Program)
+	for _, arg := range cmd.Args {
+		if strings.ContainsRune(arg, 0) {
+			return "", errors.New("pipeline: NUL in argument")
+		}
+		command += " " + shellQuote(arg)
+	}
+	if cmd.HTTPMetadata {
+		command += ` --dump-header "$dir/headers" --write-out "%output{$dir/http}%{http_code}\n%{remote_ip}\n%{time_total}\n%{url_effective}\n"`
+	}
+	return command, nil
 }
 
 func modePreviewScript(prefix, mode string, limit int) string {

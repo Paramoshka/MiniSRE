@@ -42,7 +42,8 @@ noninteractive PATH.
 
 HTTP probes require curl >= 8.4, including on remote hosts. Pipelines and HTTP
 probes also require Bash and GNU coreutils (`timeout`, `mktemp`, `mkdir`, `stat`,
-`head`, `cat`, `rm`, `rmdir`); filters use GNU `grep`, `tail` and sandboxed `sed`.
+`head`, `cat`, `rm`, `rmdir`); filters use GNU `grep`, `tail`, `sort`, `uniq` and
+sandboxed `sed`.
 These commands must be in the executing user's noninteractive PATH. No PTY or
 privilege escalation is used.
 
@@ -83,7 +84,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `dig_dns` | required `query`; optional `record_type`, `server`, `port` | bounded DNS query with full dig output and DNS status |
 | `nslookup_dns` | required `query`; optional `record_type`, `server`, `port` | bounded noninteractive DNS query with nslookup |
 | `curl_http` | required `url`; `method=GET`, optional `headers`, `follow_redirects=false`, `insecure=false`, `download=false` | HTTP/HTTPS response status, headers, server IP, timings and body preview, or saved raw body |
-| `run_pipeline` | required `source`; optional `filters`, `stdout=inline`, `stderr=inline` | source output through validated filters; return, save or discard streams, retaining all stage statuses |
+| `run_pipeline` | required `source`; optional `filters`, `stdout=inline`, `stderr=inline` | source output through validated grep/head/tail/sed/count filters; return, save or discard streams, retaining all stage statuses |
 | `lab_deploy` | required `host_id`, `topo_yaml`; `ttl_minutes=60` | create/configure one restricted FRR/Alpine lab with host-side TTL |
 | `lab_inspect` | required `host_id`; optional `name` | inspect existing labs, nodes, management IPs and registered TTL |
 | `lab_run` | required `host_id`, `name`, `node`, `checks` | bounded node diagnostics; explicit per-check statuses |
@@ -370,9 +371,12 @@ formatting; top processes still respects its requested row limit. Interfaces
 emit address output followed by link counters.
 
 Up to four stdin filters are allowed: `grep` (literal by default, optional
-`regex`/`ignore_case`/`invert`, `limit=100`), `head`/`tail` (`lines=100`), or `sed` as
-a line range (`start_line=1`, `lines=100`). `invert=true` keeps lines that do not
-match and is valid only for `grep`. Match and line limits accept 1..500. No
+`regex`/`ignore_case`/`invert`, `limit=100`), `head`/`tail` (`lines=100`), `sed` as
+a line range (`start_line=1`, `lines=100`), or `count`. `invert=true` keeps lines
+that do not match and is valid only for `grep`. `count` groups identical lines,
+sorts by descending occurrence count and returns the most frequent lines; its
+`limit` defaults to 20 and `ignore_case` folds case. Use it after `grep` for a
+top-errors view. Match and line limits accept 1..500. No
 arbitrary programs, argv, shell expressions, sed scripts or filter file paths
 are exposed. Filters run before the final preview is limited, so a match beyond
 the first 64 KiB can still be found. Limiting filters drain their remaining input

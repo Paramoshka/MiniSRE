@@ -64,6 +64,29 @@ func TestPipelineDrainsAndFiltersBeforePreview(t *testing.T) {
 	}
 }
 
+func TestPipelinePipeStage(t *testing.T) {
+	result, err := (&Runner{}).RunPipeline(context.Background(), "local", Pipeline{Stdout: "inline", Stderr: "inline", Stages: []Stage{{
+		Pipe: []Command{
+			{Program: "printf", Args: []string{"a\nb\na\n"}},
+			{Program: "sort"},
+			{Program: "uniq", Args: []string{"-c"}},
+		},
+	}}})
+	if err != nil || !result.Complete || result.Stdout != "      2 a\n      1 b\n" || result.Codes[0] != 0 {
+		t.Fatalf("pipe stage = %+v, %v", result, err)
+	}
+
+	result, err = (&Runner{}).RunPipeline(context.Background(), "local", Pipeline{Stdout: "inline", Stderr: "inline", Stages: []Stage{{
+		Pipe: []Command{
+			{Program: "printf", Args: []string{"quote'$(){{FILENAME}}\n"}},
+			{Program: "cat"},
+		},
+	}}})
+	if err != nil || result.Stdout != "quote'$(){{FILENAME}}\n" {
+		t.Fatalf("pipe quoting = %+v, %v", result, err)
+	}
+}
+
 func TestPipelineArtifactsAndLimits(t *testing.T) {
 	for _, host := range []string{"local", "web"} {
 		t.Run(host, func(t *testing.T) {
@@ -199,6 +222,7 @@ func TestPipelineRejectsMalformedPlans(t *testing.T) {
 		{}, {Stages: []Stage{{}}}, {Stages: []Stage{pipelineStage("printf", "%s", "ok")}, Stdout: "merge"},
 		{Stages: []Stage{pipelineStage("printf", "%s", "ok")}, Filename: "../outside"},
 		{Stages: []Stage{pipelineStage("printf", "%s", "a\x00b")}},
+		{Stages: []Stage{{Commands: []Command{{Program: "printf"}}, Pipe: []Command{{Program: "cat"}}}}},
 	} {
 		if _, err := pipelineScript(plan); err == nil {
 			t.Fatalf("accepted %+v", plan)

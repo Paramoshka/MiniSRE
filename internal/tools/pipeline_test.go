@@ -174,6 +174,16 @@ func TestPipelineRejectsUnsafeInputBeforeExecution(t *testing.T) {
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"grep","pattern":"x","invert":"yes"}]}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"head","invert":true}]}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"sed","invert":true}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","pattern":"x"}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","regex":true}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","invert":true}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","lines":1}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","start_line":1}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","limit":0}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","limit":501}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","limit":1.5}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","limit":"1"}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","command":"id"}]}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"grep","pattern":""}]}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"head","lines":501}]}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"sed","start_line":0}]}`,
@@ -194,6 +204,29 @@ func TestPipelineInvert(t *testing.T) {
 	out, err := Registry(&remote.Runner{})["run_pipeline"](context.Background(), raw)
 	if err != nil || !strings.Contains(out, "info two") || strings.Contains(out, "error one") || strings.Contains(out, "ERROR three") {
 		t.Fatalf("inverted grep = %q, %v", out, err)
+	}
+}
+
+func TestPipelineCount(t *testing.T) {
+	fakeCommand(t, "journalctl", "error A\nerror A\nwarning B\n", "", "0")
+	raw := json.RawMessage(`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count"}]}`)
+	out, err := Registry(&remote.Runner{})["run_pipeline"](context.Background(), raw)
+	if err != nil || !strings.Contains(out, "2 error A") || !strings.Contains(out, "1 warning B") ||
+		!strings.Contains(out, "stage[1]=count exit_code=0") {
+		t.Fatalf("count = %q, %v", out, err)
+	}
+
+	raw = json.RawMessage(`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","limit":1}]}`)
+	out, err = Registry(&remote.Runner{})["run_pipeline"](context.Background(), raw)
+	if err != nil || !strings.Contains(out, "2 error A") || strings.Contains(out, "warning B") {
+		t.Fatalf("count limit = %q, %v", out, err)
+	}
+
+	fakeCommand(t, "journalctl", "error A\nerror a\nwarning B\n", "", "0")
+	raw = json.RawMessage(`{"source":{"tool":"get_service_logs"},"filters":[{"type":"count","ignore_case":true}]}`)
+	out, err = Registry(&remote.Runner{})["run_pipeline"](context.Background(), raw)
+	if err != nil || !strings.Contains(out, "2 error A") || !strings.Contains(out, "1 warning B") {
+		t.Fatalf("count ignore_case = %q, %v", out, err)
 	}
 }
 

@@ -16,7 +16,7 @@ and explains what it found.
 - Config files and directories: selected lines, matching text, or directory contents with types, sizes and symlink targets.
 - Network interfaces, routes, policy rules, neighbors, sockets, ping, TCP port and TLS certificate checks.
 - DNS with dig/nslookup; HTTP with curl, including bounded downloads.
-- Filter diagnostic output and save it in a private directory under `/tmp`.
+- Filter and count diagnostic output, invert matches, and save results in a private directory under `/tmp`.
 - Create, inspect and clean up bounded FRR/Alpine containerlab labs on explicitly enabled hosts.
 
 The CLI supports streaming answers and shows token/cache usage. Telegram keeps
