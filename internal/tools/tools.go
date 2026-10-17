@@ -40,6 +40,11 @@ func Specs() []Spec {
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."}},"additionalProperties":false}`),
 		},
 		{
+			Name:        "get_memory",
+			Description: "Report Linux memory, swap, PSI pressure stall averages and OOM/reclaim counters from /proc. MemAvailable is an estimate; used swap does not by itself mean active swapping; PSI and counters may be unavailable. A healthy reading does not exclude an earlier incident. Defaults: host_id=local. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."}},"additionalProperties":false}`),
+		},
+		{
 			Name:        "get_disk_usage",
 			Description: "Get disk usage (total, used, available, percent used) for a filesystem path.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"path":{"type":"string","description":"Filesystem path to inspect; default /."}},"additionalProperties":false}`),
@@ -154,6 +159,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				if err == nil {
 					out, err = t.VMStat(ctx, vmstatArgs.HostID)
 				}
+			case "get_memory":
+				out, err = t.Memory(ctx, args.HostID)
 			case "get_disk_usage":
 				out, err = t.DiskUsage(ctx, args.HostID, args.Path)
 			case "get_top_processes":

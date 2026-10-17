@@ -10,6 +10,7 @@ and explains what it found.
 
 - Load, disk space and processes using the most memory or CPU.
 - Current CPU, memory, swap and I/O activity with a short vmstat sample.
+- Memory, swap, PSI pressure stalls and OOM/reclaim counters.
 - Systemd services, Docker containers and their recent logs.
 - Config files: selected lines, the end of a file or matching text.
 - Network interfaces, routes, policy rules, neighbors, sockets and ping.

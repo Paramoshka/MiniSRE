@@ -109,7 +109,7 @@ func pipelineStageSucceeded(source string, filters []pipelineFilter, index, code
 
 func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
 	var args toolArgs
-	if name == "list_hosts" || name == "run_pipeline" || strings.HasPrefix(name, "lab_") {
+	if pipelineExcluded(name) {
 		return args, errors.New("tools: invalid pipeline source")
 	}
 	for _, spec := range Specs() {

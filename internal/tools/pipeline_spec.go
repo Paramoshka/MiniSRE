@@ -2,12 +2,21 @@ package tools
 
 import (
 	"encoding/json"
+	"strings"
 )
+
+func pipelineExcluded(name string) bool {
+	switch name {
+	case "list_hosts", "run_pipeline", "get_memory":
+		return true
+	}
+	return strings.HasPrefix(name, "lab_")
+}
 
 func pipelineSpec(sources []Spec) Spec {
 	var variants []any
 	for _, source := range sources {
-		if source.Name == "list_hosts" || source.Name == "run_pipeline" {
+		if pipelineExcluded(source.Name) {
 			continue
 		}
 		var schema map[string]any

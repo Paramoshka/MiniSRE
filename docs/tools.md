@@ -7,7 +7,7 @@ agent in natural language; the tool names below describe the API it uses.
 
 - [Command dependencies](#command-dependencies)
 - [Tool reference](#tool-reference)
-- [Services and logs](#services-and-logs), [processes](#processes), [files](#files)
+- [Services and logs](#services-and-logs), [processes](#processes), [memory and pressure](#memory-and-pressure), [files](#files)
 - [Network](#network-diagnostics), [DNS](#dns), [HTTP](#http-checks-and-downloads)
 - [Pipelines and saved output](#pipelines-and-output-files)
 - [Execution limits and data access](#execution-limits-and-data-access)
@@ -55,6 +55,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `list_hosts` | none | list configured IDs and `local` |
 | `get_load_average` | none | load for 1, 5, 15 minutes and process counts |
 | `get_vmstat` | none | three samples at one-second intervals: CPU, runnable/blocked processes, memory, swap and block I/O; excludes the since-boot report |
+| `get_memory` | none | memory, swap, PSI stall averages and OOM/reclaim counters from `/proc`; unavailable sources are reported as limitations |
 | `get_disk_usage` | `path`, default `/` | total, used, available bytes formatted as human-readable sizes |
 | `get_top_processes` | `sort_by`, default `memory`; `limit`, default `10` | descending ranking by RSS or lifetime-average CPU, with PID, user, CPU%, MEM%, RSS in KiB and process name |
 | `search_processes` | required `pattern`; `limit=100` | case-insensitive literal name search across all visible processes, returning PID and name |
@@ -135,6 +136,26 @@ A match proves process existence, not service health or its relationship to a
 panel. Filtering `get_top_processes` cannot establish that a process is absent.
 `search_processes` is also a pipeline source; its match limit applies before
 downstream filters, and exit code 1 means no matches.
+
+## Memory and pressure
+
+`get_memory` reads `/proc/meminfo`, `/proc/vmstat` and the PSI files
+`/proc/pressure/cpu`, `/proc/pressure/memory` and `/proc/pressure/io`. It reports
+total, free and available memory (with the share of `MemTotal`), swap use,
+dirty/writeback pages, slab and commit accounting, PSI `some`/`full` averages over
+10, 60 and 300 seconds, and cumulative OOM/reclaim counters.
+
+`MemAvailable` is the kernel's estimate of memory available for new workloads; on
+kernels without it, the report uses `MemFree+Buffers+Cached` and marks the value as
+a fallback estimate. Used swap does not by itself mean active swapping. PSI shows
+stalled-time percentages, not free memory or I/O throughput. `oom_kill` and other
+counters are cumulative since boot, so they can reveal an earlier incident even
+when current readings look healthy. Missing PSI files or counters are reported as
+limitations; a failed `/proc/meminfo` read is an error. These readings do not prove
+application health.
+
+Example requests: "check memory and PSI on web-1", "was anything OOM-killed on
+local?", and "show swap and writeback pressure on storage-1".
 
 ## Files
 
@@ -266,8 +287,8 @@ marked `possibly_partial=true` in the error report.
 ## Pipelines and output files
 
 `run_pipeline` chooses a source by its existing tool name and arguments. Sources
-are all command-based diagnostic tools, including curl; `list_hosts` and nested
-pipelines and all `lab_*` tools are excluded. Source arguments keep their original
+are all command-based diagnostic tools, including curl; `list_hosts`, `get_memory`,
+nested pipelines and all `lab_*` tools are excluded. Source arguments keep their original
 validation and defaults. `host_id` belongs to the pipeline, and applies to every stage. Source
 streams contain raw command output rather than standalone human-readable
 formatting; top processes still respects its requested row limit. Interfaces

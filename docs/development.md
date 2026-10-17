@@ -70,7 +70,7 @@ archives use stable filenames so the installer can select one by architecture.
 - `internal/cli` - REPL, one-shot, streaming console output;
 - `internal/session` - shared history and agent loop (up to 5 tool call rounds, then a final answer without tools);
 - `internal/tools` - probes and their JSON schemas for the model;
-  `load.go`, `disk.go`, `service.go` contain the individual probes;
+  `load.go`, `disk.go`, `memory.go`, `service.go` contain the individual probes;
 - `internal/config`, `internal/remote` - YAML hosts and local/SSH command execution;
 - `internal/telegram` - Bot API polling, authorization and chat sessions;
 - `cmd/main.go` - flags and wiring.

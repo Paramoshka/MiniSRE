@@ -162,7 +162,7 @@ func TestPipelineRejectsUnsafeInputBeforeExecution(t *testing.T) {
 	argsFile := fakeCommand(t, "journalctl", "", "", "0")
 	for _, raw := range []string{
 		`{}`, `null`, `{"source":{"tool":"sh","args":{"command":"true"}}}`,
-		`{"source":{"tool":"list_hosts"}}`, `{"source":{"tool":"run_pipeline"}}`,
+		`{"source":{"tool":"list_hosts"}}`, `{"source":{"tool":"run_pipeline"}}`, `{"source":{"tool":"get_memory"}}`,
 		`{"source":{"tool":"get_service_logs","args":{"host_id":"web"}}}`,
 		`{"source":{"tool":"get_service_logs","args":{"destination":"127.0.0.1"}}}`,
 		`{"source":{"tool":"get_service_logs","args":{"service":"x; id"}}}`,
