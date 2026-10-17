@@ -188,6 +188,7 @@ func toolSpecs() []agent.Tool {
 			Name:        spec.Name,
 			Description: spec.Description,
 			Parameters:  spec.Parameters,
+			Mutating:    spec.Mutating,
 		})
 	}
 	return out

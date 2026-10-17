@@ -14,7 +14,10 @@ func TestScheduledChecksCannotMutateLabs(t *testing.T) {
 		calls, runs := 0, 0
 		b.newSession = func() *session.Session {
 			return &session.Session{
-				Tools: []agent.Tool{{Name: "lab_deploy"}, {Name: "lab_destroy"}, {Name: "lab_inspect"}, {Name: "lab_run"}},
+				Tools: []agent.Tool{
+					{Name: "lab_deploy", Mutating: true}, {Name: "lab_destroy", Mutating: true},
+					{Name: "lab_inspect"}, {Name: "lab_run"},
+				},
 				Turn: func(_ context.Context, req agent.Request) (*agent.Response, error) {
 					calls++
 					for _, tool := range req.Tools {

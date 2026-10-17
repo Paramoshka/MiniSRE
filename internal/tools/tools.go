@@ -15,9 +15,12 @@ type Spec struct {
 	Name        string
 	Description string
 	Parameters  json.RawMessage
+	Mutating    bool
 }
 
 type Func func(ctx context.Context, args json.RawMessage) (string, error)
+
+const maxToolResult = 128 * 1024
 
 type Tools struct {
 	Runner *remote.Runner
@@ -45,11 +48,11 @@ func Registry(runner *remote.Runner) map[string]Func {
 			if err := validateArgKeys(def.Parameters, raw); err != nil {
 				return "", err
 			}
-			out, err := def.Run(ctx, t, raw)
+			out, err := runDefinition(ctx, def, t, raw)
 			if err != nil {
 				return "", errors.New(runner.Redact(err.Error()))
 			}
-			return runner.Redact(out), nil
+			return capToolResult(runner.Redact(out)), nil
 		}
 	}
 	return registry
@@ -122,6 +125,18 @@ func decodeObject(raw json.RawMessage, target any) error {
 		return errors.New("tools: expected one argument object")
 	}
 	return nil
+}
+
+func capToolResult(out string) string {
+	if len(out) <= maxToolResult {
+		return out
+	}
+	cut := maxToolResult
+	// Do not split a UTF-8 sequence.
+	for cut > 0 && out[cut]&0xC0 == 0x80 {
+		cut--
+	}
+	return out[:cut] + fmt.Sprintf("\n[result truncated at %d KiB]", maxToolResult/1024)
 }
 
 func schemaProperties(parameters json.RawMessage) (map[string]json.RawMessage, error) {

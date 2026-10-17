@@ -82,6 +82,8 @@ type Tool struct {
 	Name        string
 	Description string
 	Parameters  json.RawMessage
+	// Mutating is executor policy metadata; it is not sent to the model.
+	Mutating bool
 }
 
 type Request struct {

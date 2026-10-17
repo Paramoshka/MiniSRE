@@ -251,7 +251,7 @@ func TestAskRunsTools(t *testing.T) {
 	if len(calls) != 1 || calls[0].Name != "get_load_average" || calls[0].Arguments != "{}" {
 		t.Errorf("tool calls = %+v, want single get_load_average", calls)
 	}
-	if !strings.Contains(errOut.String(), "→ get_load_average({})") {
+	if !strings.Contains(errOut.String(), "→ get_load_average\n") || strings.Contains(errOut.String(), "{}") {
 		t.Errorf("stderr = %q, want tool call line", errOut.String())
 	}
 	if !strings.Contains(out.String(), "hello world") {

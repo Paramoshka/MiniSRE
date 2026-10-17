@@ -23,6 +23,8 @@ func labDefinitions() []Definition {
 		name := spec.Name
 		defs = append(defs, Definition{
 			Name: spec.Name, Description: spec.Description, Parameters: spec.Parameters,
+			Mutating: name == "lab_deploy" || name == "lab_destroy",
+			Timeout:  labToolTimeout,
 			Run: func(ctx context.Context, t *Tools, raw json.RawMessage) (string, error) {
 				return t.Lab(ctx, name, raw)
 			},

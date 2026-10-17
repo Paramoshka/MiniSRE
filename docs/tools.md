@@ -457,9 +457,13 @@ Interrupted jobs can leave private temporary files.
 ## Execution limits and data access
 
 Each diagnostic command has a 15-second timeout, including SSH connection and handshake.
+Each tool call also has a 50-second overall limit, or 130 seconds for lab tools;
+its returned text is capped at 128 KiB with a truncation marker.
 Lab requests instead have a 120-second host-side limit and a 125-second caller
 limit including SSH; each node diagnostic has its own 15-second limit. Lab
 privileges, resource constraints and cleanup are described in [Containerlab](containerlab.md).
+Scheduled checks receive only non-mutating tools; lab deployment and deletion
+are excluded.
 Captured stdout and stderr together are limited to 64 KiB, with an explicit
 truncation marker. Local arguments are passed directly to the process; SSH
 arguments are quoted for the remote shell. The model cannot supply a program or

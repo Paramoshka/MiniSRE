@@ -3,9 +3,12 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"mini-sre/internal/remote"
 )
@@ -156,6 +159,45 @@ func TestRegistryRejectsForeignArguments(t *testing.T) {
 		if _, err := registry[tc.name](context.Background(), json.RawMessage(tc.raw)); err == nil {
 			t.Errorf("%s accepted arguments from another tool: %s", tc.name, tc.raw)
 		}
+	}
+}
+
+func TestMutatingTools(t *testing.T) {
+	for _, spec := range Specs() {
+		want := spec.Name == "lab_deploy" || spec.Name == "lab_destroy"
+		if spec.Mutating != want {
+			t.Errorf("tool %q mutating=%t, want %t", spec.Name, spec.Mutating, want)
+		}
+	}
+}
+
+func TestDefinitionTimeout(t *testing.T) {
+	def := Definition{
+		Name: "slow", Description: "slow",
+		Parameters: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		Timeout:    10 * time.Millisecond,
+		Run: func(ctx context.Context, _ *Tools, _ json.RawMessage) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	}
+	if _, err := runDefinition(context.Background(), def, &Tools{}, nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("definition timeout: %v", err)
+	}
+}
+
+func TestCapToolResult(t *testing.T) {
+	short := strings.Repeat("a", 100)
+	if got := capToolResult(short); got != short {
+		t.Fatal("short result was changed")
+	}
+	got := capToolResult(strings.Repeat("a", maxToolResult+100))
+	if !strings.HasPrefix(got, strings.Repeat("a", maxToolResult)) || !strings.Contains(got, "truncated") {
+		t.Fatal("long result was not capped")
+	}
+	got = capToolResult(strings.Repeat("a", maxToolResult-1) + "€tail")
+	if !utf8.ValidString(got) {
+		t.Fatal("cap split a UTF-8 sequence")
 	}
 }
 

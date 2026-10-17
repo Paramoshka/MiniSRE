@@ -100,7 +100,7 @@ func pipelineStageSucceeded(source string, filters []pipelineFilter, index, code
 		return true
 	}
 	if index == 0 {
-		for _, def := range baseDefinitions() {
+		for _, def := range definitions() {
 			if def.Name == source && def.Pipeline != nil && def.Pipeline.ExitOK != nil {
 				return def.Pipeline.ExitOK(code)
 			}
@@ -112,7 +112,7 @@ func pipelineStageSucceeded(source string, filters []pipelineFilter, index, code
 
 func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
 	var args toolArgs
-	for _, def := range baseDefinitions() {
+	for _, def := range definitions() {
 		if def.Name != name {
 			continue
 		}
@@ -140,7 +140,7 @@ func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
 }
 
 func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (remote.Stage, error) {
-	for _, def := range baseDefinitions() {
+	for _, def := range definitions() {
 		if def.Name != name {
 			continue
 		}

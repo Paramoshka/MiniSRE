@@ -202,7 +202,7 @@ func (a *App) ensureSession() {
 	a.session = &session.Session{
 		Turn: a.turn, Tools: a.Tools, RunTool: a.RunTool, SystemPrompt: a.SystemPrompt,
 		OnToolCall: func(call agent.ToolCall) {
-			fmt.Fprintf(a.Err, "→ %s(%s)\n", call.Name, call.Arguments)
+			fmt.Fprintf(a.Err, "→ %s\n", call.Name)
 		},
 	}
 	a.session.Reset()

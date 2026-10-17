@@ -5,8 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
+	"time"
 
 	"mini-sre/internal/remote"
+)
+
+const (
+	defaultToolTimeout = 50 * time.Second
+	labToolTimeout     = 130 * time.Second
 )
 
 // Definition declares one model-visible tool and its handler.
@@ -16,6 +23,8 @@ type Definition struct {
 	Parameters  json.RawMessage
 	Run         RunFunc
 	Pipeline    *PipelineSource // nil when the tool cannot be a pipeline source
+	Mutating    bool            // must not be scheduled or exposed as read-only
+	Timeout     time.Duration   // zero uses defaultToolTimeout
 }
 
 type RunFunc func(ctx context.Context, t *Tools, args json.RawMessage) (string, error)
@@ -52,7 +61,17 @@ func pipelineExit(source *PipelineSource, ok func(code int) bool) *PipelineSourc
 var diagnosticExit = func(code int) bool { return code == 1 }
 
 func (d Definition) spec() Spec {
-	return Spec{Name: d.Name, Description: d.Description, Parameters: d.Parameters}
+	return Spec{Name: d.Name, Description: d.Description, Parameters: d.Parameters, Mutating: d.Mutating}
+}
+
+func runDefinition(ctx context.Context, def Definition, t *Tools, raw json.RawMessage) (string, error) {
+	timeout := def.Timeout
+	if timeout <= 0 {
+		timeout = defaultToolTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return def.Run(ctx, t, raw)
 }
 
 // standard decodes the shared argument object before calling the handler.
@@ -66,13 +85,21 @@ func standard(fn func(context.Context, *Tools, toolArgs) (string, error)) RunFun
 	}
 }
 
+var (
+	definitionsOnce   sync.Once
+	cachedDefinitions []Definition
+)
+
 func definitions() []Definition {
-	base := baseDefinitions()
-	labs := labDefinitions()
-	defs := make([]Definition, 0, len(base)+1+len(labs))
-	defs = append(defs, base...)
-	defs = append(defs, pipelineDefinition(base))
-	return append(defs, labs...)
+	definitionsOnce.Do(func() {
+		base := baseDefinitions()
+		labs := labDefinitions()
+		defs := make([]Definition, 0, len(base)+1+len(labs))
+		defs = append(defs, base...)
+		defs = append(defs, pipelineDefinition(base))
+		cachedDefinitions = append(defs, labs...)
+	})
+	return cachedDefinitions
 }
 
 func baseDefinitions() []Definition {
