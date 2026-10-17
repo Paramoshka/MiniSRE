@@ -165,6 +165,8 @@ func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (re
 	switch name {
 	case "get_load_average":
 		cmd = loadCommand()
+	case "get_vmstat":
+		cmd = vmstatCommand()
 	case "get_disk_usage":
 		cmd = diskCommand(args.Path)
 	case "get_top_processes":

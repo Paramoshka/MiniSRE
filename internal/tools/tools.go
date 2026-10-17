@@ -35,6 +35,11 @@ func Specs() []Spec {
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."}},"additionalProperties":false}`),
 		},
 		{
+			Name:        "get_vmstat",
+			Description: "Measure current CPU activity, runnable/blocked processes, memory, swap and block I/O with vmstat: three samples at one-second intervals, excluding the initial since-boot report. Memory and swap units are KiB. Requires procps-ng vmstat on the selected host. A short healthy sample does not exclude an earlier incident. Defaults: host_id=local. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."}},"additionalProperties":false}`),
+		},
+		{
 			Name:        "get_disk_usage",
 			Description: "Get disk usage (total, used, available, percent used) for a filesystem path.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"path":{"type":"string","description":"Filesystem path to inspect; default /."}},"additionalProperties":false}`),
@@ -129,7 +134,7 @@ func Registry(runner *remote.Runner) map[string]Func {
 		registry[name] = func(ctx context.Context, raw json.RawMessage) (string, error) {
 			var args toolArgs
 			var err error
-			if name != "run_pipeline" && !strings.HasPrefix(name, "lab_") {
+			if name != "run_pipeline" && name != "get_vmstat" && !strings.HasPrefix(name, "lab_") {
 				args, err = decodeArgs(raw)
 				if err != nil {
 					return "", err
@@ -141,6 +146,14 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out = strings.Join(runner.Hosts(), "\n")
 			case "get_load_average":
 				out, err = t.LoadAverage(ctx, args.HostID)
+			case "get_vmstat":
+				var vmstatArgs struct {
+					HostID string `json:"host_id"`
+				}
+				err = decodeObject(raw, &vmstatArgs)
+				if err == nil {
+					out, err = t.VMStat(ctx, vmstatArgs.HostID)
+				}
 			case "get_disk_usage":
 				out, err = t.DiskUsage(ctx, args.HostID, args.Path)
 			case "get_top_processes":

@@ -25,6 +25,10 @@ After the checks pass, it builds Linux `amd64` and `arm64` binaries with CGO
 disabled and uploads a `mini-sre-linux` workflow artifact (retained for 14 days).
 Each archive contains `mini-sre`, the example user service and `hosts.example.yaml`.
 `checksums.txt` contains SHA256 hashes for both archives.
+The binary's `--version` reports the version tag and short commit SHA embedded
+at build time (`dev` for branch builds). CI also checks this metadata by running
+the amd64 binary extracted from its archive. Ordinary local builds report
+`MiniSRE dev (unknown)`.
 
 To publish a release, push a stable version tag on the commit you want to ship:
 

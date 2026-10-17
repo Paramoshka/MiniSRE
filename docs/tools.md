@@ -24,6 +24,8 @@ noninteractive PATH on remote hosts. Commands run as the current local or SSH
 user; the agent does not invoke `sudo`.
 
 Process probes require `ps` and `pgrep` from procps-ng, locally or in the SSH user's PATH.
+The `get_vmstat` probe requires procps-ng `vmstat` with `-w`, `-n`, `-y` and
+`-S K` support on the selected host. The agent does not install missing commands.
 
 File probes require GNU `sed` (with `--sandbox`), `grep`, `tail`, `readlink` and
 `stat`, locally or in the SSH user's noninteractive PATH.
@@ -52,6 +54,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 |---|---|---|
 | `list_hosts` | none | list configured IDs and `local` |
 | `get_load_average` | none | load for 1, 5, 15 minutes and process counts |
+| `get_vmstat` | none | three samples at one-second intervals: CPU, runnable/blocked processes, memory, swap and block I/O; excludes the since-boot report |
 | `get_disk_usage` | `path`, default `/` | total, used, available bytes formatted as human-readable sizes |
 | `get_top_processes` | `sort_by`, default `memory`; `limit`, default `10` | descending ranking by RSS or lifetime-average CPU, with PID, user, CPU%, MEM%, RSS in KiB and process name |
 | `search_processes` | required `pattern`; `limit=100` | case-insensitive literal name search across all visible processes, returning PID and name |
@@ -99,6 +102,16 @@ permissions; a restricted journal can contain fewer records than the full
 system journal.
 
 ## Processes
+
+`get_vmstat` runs `vmstat -w -n -y -S K 1 3`, taking approximately three seconds.
+It works locally and over SSH, and can also be used as a pipeline source. The
+standalone tool preserves the table with a sampling/units explanation; pipelines
+use the raw table, as for other sources. Memory and swap columns use KiB; CPU
+columns are percentages. Interpret column names because procps-ng versions can
+expose additional columns. Used swap (`swpd`) does not alone imply active swapping
+(`si`/`so`), and I/O wait (`wa`) does not alone prove a disk fault. A short healthy
+sample cannot rule out an earlier spike. Missing commands, failed/incomplete or
+truncated standalone samples are reported as errors, not healthy results.
 
 `get_top_processes` accepts `sort_by=memory` or `sort_by=cpu` and `limit=1..50`.
 For example, ask "which processes use the most memory on web-1?" or
