@@ -51,8 +51,8 @@ func Specs() []Spec {
 		},
 		{
 			Name:        "get_top_processes",
-			Description: "Find resource consumers among visible processes sorted by memory (RSS) or CPU, descending. Only the top rows are returned; use search_processes to find a process by name. Shows PID, user, CPU%, MEM%, RSS in KiB and executable name, without command-line arguments. CPU% is a lifetime average, not an interval measurement, and can exceed 100% on multiple cores. Defaults: host_id=local, sort_by=memory, limit=10.",
-			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"sort_by":{"type":"string","enum":["memory","cpu"],"description":"Sort descending by resident memory or lifetime-average CPU; default memory."},"limit":{"type":"integer","minimum":1,"maximum":50,"description":"Maximum number of processes; default 10."}},"additionalProperties":false}`),
+			Description: "Find resource consumers among visible processes sorted by memory (RSS), lifetime CPU, or a one-second interval CPU sample (cpu_interval), descending. cpu_interval uses procps-ng top and omits idle processes. Only the top rows are returned; use search_processes to find a process by name. Shows PID, user, CPU%, MEM%, RSS in KiB and executable name, without command-line arguments. CPU% is a lifetime average for cpu and an interval measurement for cpu_interval; it can exceed 100% on multiple cores. Defaults: host_id=local, sort_by=memory, limit=10.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"sort_by":{"type":"string","enum":["memory","cpu","cpu_interval"],"description":"Sort descending by resident memory, lifetime-average CPU, or a one-second interval CPU sample; default memory."},"limit":{"type":"integer","minimum":1,"maximum":50,"description":"Maximum number of processes; default 10."}},"additionalProperties":false}`),
 		},
 		{
 			Name:        "search_processes",

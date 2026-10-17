@@ -8,7 +8,7 @@ and explains what it found.
 
 ## What it can check
 
-- Load, disk space and processes using the most memory or CPU.
+- Load, disk space and processes using the most memory or CPU, including a one-second interval CPU sample.
 - Current CPU, memory, swap and I/O activity with a short vmstat sample.
 - Memory, swap, PSI pressure stalls and OOM/reclaim counters.
 - Systemd services, failed units, Docker containers and their recent logs.

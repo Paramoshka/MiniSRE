@@ -176,6 +176,9 @@ func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (re
 	case "get_disk_usage":
 		cmd = diskCommand(args.Path)
 	case "get_top_processes":
+		if args.SortBy == "cpu_interval" {
+			return stage, errors.New("tools: cpu_interval is not supported as a pipeline source")
+		}
 		var limit int
 		cmd, _, limit, err = processCommand(args)
 		stage.HeadLines = limit + 1

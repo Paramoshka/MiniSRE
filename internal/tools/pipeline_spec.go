@@ -23,9 +23,17 @@ func pipelineSpec(sources []Spec) Spec {
 		if err := json.Unmarshal(source.Parameters, &schema); err != nil {
 			panic(err)
 		}
-		delete(schema["properties"].(map[string]any), "host_id")
+		properties := schema["properties"].(map[string]any)
+		delete(properties, "host_id")
+		if source.Name == "get_top_processes" {
+			properties["sort_by"] = map[string]any{
+				"type":        "string",
+				"enum":        []string{"memory", "cpu"},
+				"description": "Sort by RSS or lifetime-average CPU; interval sampling is not available in pipelines.",
+			}
+		}
 		if source.Name == "curl_http" {
-			schema["properties"].(map[string]any)["download"] = map[string]any{"type": "boolean", "enum": []bool{false}, "description": "Use the pipeline stdout=file mode to save the body."}
+			properties["download"] = map[string]any{"type": "boolean", "enum": []bool{false}, "description": "Use the pipeline stdout=file mode to save the body."}
 		}
 		variants = append(variants, map[string]any{
 			"type": "object", "additionalProperties": false,

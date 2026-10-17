@@ -25,7 +25,9 @@ user; the agent does not invoke `sudo`.
 
 Process probes require `ps` and `pgrep` from procps-ng, locally or in the SSH user's PATH.
 The `get_vmstat` probe requires procps-ng `vmstat` with `-w`, `-n`, `-y` and
-`-S K` support on the selected host. The agent does not install missing commands.
+`-S K` support on the selected host. `get_top_processes` with
+`sort_by=cpu_interval` additionally requires procps-ng `top` with `-b`, `-n`,
+`-d`, `-o`, `-w` and `-i` support. The agent does not install missing commands.
 
 File probes require GNU `sed` (with `--sandbox`), `grep`, `tail`, `readlink` and
 `stat`; directory listings additionally need GNU `find`, locally or in the SSH
@@ -63,7 +65,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `get_vmstat` | none | three samples at one-second intervals: CPU, runnable/blocked processes, memory, swap and block I/O; excludes the since-boot report |
 | `get_memory` | none | memory, swap, PSI stall averages and OOM/reclaim counters from `/proc`; unavailable sources are reported as limitations |
 | `get_disk_usage` | `path`, default `/` | total, used, available bytes formatted as human-readable sizes |
-| `get_top_processes` | `sort_by`, default `memory`; `limit`, default `10` | descending ranking by RSS or lifetime-average CPU, with PID, user, CPU%, MEM%, RSS in KiB and process name |
+| `get_top_processes` | `sort_by`, default `memory`; `limit`, default `10` | descending ranking by RSS, lifetime-average CPU, or one-second interval CPU (`cpu_interval` via `top`), with PID, user, CPU%, MEM%, RSS in KiB and process name |
 | `search_processes` | required `pattern`; `limit=100` | case-insensitive literal name search across all visible processes, returning PID and name |
 | `get_service_status` | required `service`; `backend`, default `systemd`; `scope`, default `system` | systemd unit state or Docker container `.State` |
 | `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes`, `priority`, `boot` | recent journal or container logs; systemd priority and boot filters |
@@ -147,9 +149,15 @@ expose additional columns. Used swap (`swpd`) does not alone imply active swappi
 sample cannot rule out an earlier spike. Missing commands, failed/incomplete or
 truncated standalone samples are reported as errors, not healthy results.
 
-`get_top_processes` accepts `sort_by=memory` or `sort_by=cpu` and `limit=1..50`.
-For example, ask "which processes use the most memory on web-1?" or
-"top 5 processes by CPU on local". Memory sorting uses RSS (resident physical
+`get_top_processes` accepts `sort_by=memory`, `sort_by=cpu` or
+`sort_by=cpu_interval` and `limit=1..50`. `cpu_interval` runs
+`top -b -n 2 -d 1 -o +%CPU -w 256 -i` and reports the second sample, so CPU
+percentages cover a one-second interval; idle processes are omitted and the
+first since-boot table is discarded. It requires procps-ng `top`. If the output is
+truncated before the second table, the probe fails instead of reporting the
+since-boot table. For example, ask "which processes use the most memory on web-1?",
+"top 5 processes by CPU on local", or "what used CPU in the last second on web-1?".
+Memory sorting uses RSS (resident physical
 memory), not virtual address space. RSS includes shared pages, so summing it across processes can
 double-count memory. CPU is averaged over each process's entire lifetime and can
 exceed 100% on multiple cores; it does not measure a recent one-second interval.
@@ -367,7 +375,9 @@ are all command-based diagnostic tools, including curl; `list_hosts`, `get_memor
 excluded. Source arguments keep their original
 validation and defaults. `host_id` belongs to the pipeline, and applies to every stage. Source
 streams contain raw command output rather than standalone human-readable
-formatting; top processes still respects its requested row limit. Interfaces
+formatting; top processes still respects its requested row limit. In a pipeline,
+`get_top_processes` accepts only `sort_by=memory` or `sort_by=cpu`;
+`cpu_interval` is not a source because it emits two sampling tables. Interfaces
 emit address output followed by link counters.
 
 Up to four stdin filters are allowed: `grep` (literal by default, optional

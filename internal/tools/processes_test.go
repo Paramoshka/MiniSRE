@@ -71,6 +71,77 @@ func TestTopProcessesRejectsArgumentsBeforeExecution(t *testing.T) {
 	}
 }
 
+const topIntervalFixture = `top - 12:00:00 up 1 day,  1 user,  load average: 0.10, 0.20, 0.30
+Tasks: 100 total,   1 running,  99 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  1.0 us,  0.5 sy,  0.0 ni, 98.0 id,  0.5 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :  16000.0 total,   1000.0 free,   5000.0 used,  10000.0 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.  11000.0 avail Mem
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+     10 root      20   0  100000  10000   5000 R  99.0   0.1   0:01.00 first-process
+     11 root      20   0  100000  10000   5000 S  50.0   0.1   0:00.50 second-process
+
+top - 12:00:01 up 1 day,  1 user,  load average: 0.10, 0.20, 0.30
+Tasks: 100 total,   1 running,  99 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  1.0 us,  0.5 sy,  0.0 ni, 98.0 id,  0.5 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :  16000.0 total,   1000.0 free,   5000.0 used,  10000.0 buff/cache
+MiB Swap:   1024.0 total,   1024.0 free,      0.0 used.  11000.0 avail Mem
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+     20 sre       20   0  100000  10000   5000 R  42.0   0.1   0:01.00 worker-name
+     21 sre       20   0  100000  10000   5000 S  10.0   0.1   0:00.10 other-name
+`
+
+func TestTopProcessesCPUInterval(t *testing.T) {
+	argsFile := fakeCommand(t, "top", topIntervalFixture, "", "0")
+	out, err := Registry(&remote.Runner{})["get_top_processes"](context.Background(), json.RawMessage(`{"sort_by":"cpu_interval","limit":2}`))
+	if err != nil || !strings.Contains(out, "1-second interval") || !strings.Contains(out, "worker-name") ||
+		!strings.Contains(out, "other-name") || strings.Contains(out, "first-process") || strings.Contains(out, "second-process") {
+		t.Fatalf("interval process report = %q, %v", out, err)
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "-b\n-n\n2\n-d\n1\n-o\n+%CPU\n-w\n256\n-i\n"
+	if string(args) != want {
+		t.Fatalf("top arguments = %q, want %q", args, want)
+	}
+}
+
+func TestTopProcessesCPUIntervalErrors(t *testing.T) {
+	call := Registry(&remote.Runner{})["get_top_processes"]
+	fakeCommand(t, "top", strings.Split(topIntervalFixture, "\ntop - 12:00:01")[0]+"\n", "", "0")
+	if _, err := call(context.Background(), json.RawMessage(`{"sort_by":"cpu_interval"}`)); err == nil {
+		t.Fatal("one top sample was accepted")
+	}
+	fakeCommand(t, "top", strings.Repeat("x", 70000), "", "0")
+	if _, err := call(context.Background(), json.RawMessage(`{"sort_by":"cpu_interval"}`)); err == nil {
+		t.Fatal("truncated top output was accepted")
+	}
+	noRows := "    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n\n" +
+		"    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n"
+	fakeCommand(t, "top", noRows, "", "0")
+	if _, err := call(context.Background(), json.RawMessage(`{"sort_by":"cpu_interval"}`)); err == nil {
+		t.Fatal("top sample without rows was accepted")
+	}
+	fakeCommand(t, "top", "", "permission denied\n", "1")
+	if _, err := call(context.Background(), json.RawMessage(`{"sort_by":"cpu_interval"}`)); err == nil {
+		t.Fatal("top command failure was hidden")
+	}
+}
+
+func TestPipelineRejectsCPUInterval(t *testing.T) {
+	argsFile := fakeCommand(t, "top", "", "", "0")
+	raw := json.RawMessage(`{"source":{"tool":"get_top_processes","args":{"sort_by":"cpu_interval"}}}`)
+	if _, err := Registry(&remote.Runner{})["run_pipeline"](context.Background(), raw); err == nil {
+		t.Fatal("cpu_interval was accepted as a pipeline source")
+	}
+	if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+		t.Fatal("top ran before the pipeline source was rejected")
+	}
+}
+
 func TestTopProcessesErrorsAndTruncation(t *testing.T) {
 	for _, tc := range []struct {
 		name, stdout, stderr, exit string
@@ -105,10 +176,17 @@ func TestTopProcessesLocally(t *testing.T) {
 	if call == nil {
 		t.Fatal("process tool is not registered")
 	}
-	for _, sortBy := range []string{"memory", "cpu"} {
+	sortModes := []string{"memory", "cpu"}
+	if _, err := exec.LookPath("top"); err == nil {
+		sortModes = append(sortModes, "cpu_interval")
+	}
+	for _, sortBy := range sortModes {
 		out, err := call(context.Background(), json.RawMessage(`{"sort_by":"`+sortBy+`","limit":3}`))
 		if err != nil || !strings.Contains(out, "COMMAND") || !strings.Contains(out, "PID") {
-			t.Fatalf("real local ps report: %q, %v", out, err)
+			t.Fatalf("real local process report (%s): %q, %v", sortBy, out, err)
+		}
+		if sortBy == "cpu_interval" && !strings.Contains(out, "1-second interval") {
+			t.Fatalf("real interval report: %q", out)
 		}
 	}
 	if _, err := call(context.Background(), json.RawMessage(`{"host_id":"missing"}`)); err == nil {
