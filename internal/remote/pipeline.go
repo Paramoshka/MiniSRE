@@ -66,7 +66,8 @@ func (r *Runner) RunPipeline(ctx context.Context, hostID string, plan Pipeline) 
 	deadline, _ := ctx.Deadline()
 	seconds := strconv.FormatFloat(time.Until(deadline).Seconds(), 'f', 3, 64)
 	// The remote watchdog also bounds jobs after a connection is lost.
-	raw, runErr := r.run(ctx, hostID, true, "timeout", "--signal=TERM", "--kill-after=1s", seconds,
+	// Let the shell trap clean up its worker group without timeout also signalling that group.
+	raw, runErr := r.run(ctx, hostID, true, "timeout", "--foreground", "--signal=TERM", "--kill-after=1s", seconds,
 		"bash", "--noprofile", "--norc", "-p", "-c", script)
 	parsed, parseErr := parsePipelineOutput(raw.Stdout, plan)
 	if parseErr == nil {

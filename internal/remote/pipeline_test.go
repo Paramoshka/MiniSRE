@@ -121,22 +121,75 @@ func TestPipelineCancellationStopsChildren(t *testing.T) {
 			if !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("cancel = %v", err)
 			}
-			data, err := os.ReadFile(pidFile)
+			assertPipelineChildStopped(t, pidFile)
+		})
+	}
+}
+
+func assertPipelineChildStopped(t *testing.T, pidFile string) {
+	t.Helper()
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if syscall.Kill(pid, 0) == nil {
+		state, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+		t.Fatalf("child %d survived cancellation: %s", pid, state)
+	}
+}
+
+func TestPipelineManualCancellationStopsChildren(t *testing.T) {
+	for _, host := range []string{"local", "web"} {
+		t.Run(host, func(t *testing.T) {
+			runner := &Runner{}
+			if host == "web" {
+				runner = testSSH(t, false)
+			}
+			pidFile := filepath.Join(t.TempDir(), "pid")
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			timer := time.AfterFunc(300*time.Millisecond, cancel)
+			defer timer.Stop()
+			_, err := runner.RunPipeline(ctx, host, Pipeline{Stdout: "discard", Stderr: "discard", Stages: []Stage{
+				pipelineStage("sh", "-c", "echo $$ > \"$1\"; exec sleep 30", "test", pidFile),
+			}})
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancel = %v", err)
+			}
+			assertPipelineChildStopped(t, pidFile)
+		})
+	}
+}
+
+func TestPipelineWatchdogStopsChildren(t *testing.T) {
+	for _, host := range []string{"local", "web"} {
+		t.Run(host, func(t *testing.T) {
+			runner := &Runner{}
+			if host == "web" {
+				runner = testSSH(t, false)
+			}
+			pidFile := filepath.Join(t.TempDir(), "pid")
+			script, err := pipelineScript(Pipeline{Stdout: "discard", Stderr: "discard", Stages: []Stage{
+				pipelineStage("sh", "-c", "echo $$ > \"$1\"; exec sleep 30", "test", pidFile),
+			}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-			if err != nil {
-				t.Fatal(err)
+			// With no parent cancellation, only the host-side watchdog can stop the worker.
+			result, err := runner.run(context.Background(), host, true, "timeout", "--foreground",
+				"--signal=TERM", "--kill-after=1s", "0.3", "bash", "--noprofile", "--norc", "-p", "-c", script)
+			if err == nil || result.ExitCode != 124 {
+				t.Fatalf("watchdog: exit=%d err=%v", result.ExitCode, err)
 			}
-			deadline := time.Now().Add(time.Second)
-			for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
-				time.Sleep(10 * time.Millisecond)
-			}
-			if syscall.Kill(pid, 0) == nil {
-				state, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-				t.Fatalf("child %d survived cancellation: %s", pid, state)
-			}
+			assertPipelineChildStopped(t, pidFile)
 		})
 	}
 }

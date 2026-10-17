@@ -81,7 +81,17 @@ func (r *Runner) runInput(ctx context.Context, hostID string, processGroup bool,
 		cmd.WaitDelay = time.Second
 		if processGroup {
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-			cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
+			cmd.Cancel = func() error {
+				if program == "timeout" {
+					// The watchdog handles deadlines. Sending TERM at the same instant can
+					// interrupt its shell's cleanup; only forward explicit cancellation.
+					if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						return nil
+					}
+					return cmd.Process.Signal(syscall.SIGTERM)
+				}
+				return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+			}
 		}
 		err = cmd.Run()
 	} else {
