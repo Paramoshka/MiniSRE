@@ -69,8 +69,8 @@ func Specs() []Spec {
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"scope":{"type":"string","enum":["system","user"],"description":"Systemd manager to inspect; default system."}},"additionalProperties":false}`),
 		},
 		{
-			Name: "get_service_logs", Description: "Read recent journalctl or Docker container logs. backend defaults to systemd; scope defaults to system. Use scope=user for user systemd services; omit service for the selected journal. Defaults: 100 records from the last 60 minutes. No follow mode.",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"service":{"type":"string"},"backend":{"type":"string","enum":["systemd","docker"]},"scope":{"type":"string","enum":["system","user"],"description":"Systemd only: system (default) or the executing user's journal."},"lines":{"type":"integer","minimum":1,"maximum":500},"since_minutes":{"type":"integer","minimum":1}},"additionalProperties":false}`),
+			Name: "get_service_logs", Description: "Read recent journalctl or Docker container logs. backend defaults to systemd; scope defaults to system. Use scope=user for user systemd services; omit service for the selected journal. Systemd only: priority selects a minimum severity and boot selects the current, previous or an explicit boot ID. Defaults: 100 records from the last 60 minutes. No follow mode.",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"service":{"type":"string"},"backend":{"type":"string","enum":["systemd","docker"]},"scope":{"type":"string","enum":["system","user"],"description":"Systemd only: system (default) or the executing user's journal."},"lines":{"type":"integer","minimum":1,"maximum":500},"since_minutes":{"type":"integer","minimum":1},"priority":{"type":"string","enum":["emerg","alert","crit","err","warning","notice","info","debug"],"description":"Systemd only: minimum journal severity."},"boot":{"type":"string","description":"Systemd only: current, previous, or a 32-character lowercase hexadecimal boot ID."}},"additionalProperties":false}`),
 		},
 		{
 			Name:        "list_containers",
@@ -238,6 +238,8 @@ type toolArgs struct {
 	ServiceTarget
 	Lines        *int   `json:"lines"`
 	SinceMinutes *int   `json:"since_minutes"`
+	Priority     string `json:"priority"`
+	Boot         string `json:"boot"`
 	SortBy       string `json:"sort_by"`
 	Limit        *int   `json:"limit"`
 	StartLine    *int   `json:"start_line"`

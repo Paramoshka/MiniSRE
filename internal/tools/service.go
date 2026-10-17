@@ -11,7 +11,10 @@ import (
 	"mini-sre/internal/remote"
 )
 
-var serviceName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.:@\\-]*$`)
+var (
+	serviceName   = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.:@\\-]*$`)
+	journalBootID = regexp.MustCompile(`^[0-9a-f]{32}$`)
+)
 
 type ServiceTarget struct {
 	Name    string `json:"service"`
@@ -116,6 +119,32 @@ func (t *Tools) ServiceStatus(ctx context.Context, hostID string, target Service
 	return commandOutput(result), nil
 }
 
+func journalPriority(priority string) (string, error) {
+	if priority == "" {
+		return "", nil
+	}
+	switch priority {
+	case "emerg", "alert", "crit", "err", "warning", "notice", "info", "debug":
+		return "--priority=" + priority, nil
+	}
+	return "", errors.New("tools: priority must be emerg, alert, crit, err, warning, notice, info or debug")
+}
+
+func journalBoot(boot string) (string, error) {
+	switch boot {
+	case "":
+		return "", nil
+	case "current":
+		return "--boot=0", nil
+	case "previous":
+		return "--boot=-1", nil
+	}
+	if journalBootID.MatchString(boot) {
+		return "--boot=" + boot, nil
+	}
+	return "", errors.New("tools: boot must be current, previous or a 32-character lowercase hexadecimal boot ID")
+}
+
 func serviceLogsCommand(args toolArgs) (remote.Command, error) {
 	target, err := args.ServiceTarget.normalized(false)
 	if err != nil {
@@ -131,21 +160,38 @@ func serviceLogsCommand(args toolArgs) (remote.Command, error) {
 	if lines < 1 || lines > 500 || minutes < 1 {
 		return remote.Command{}, errors.New("tools: lines must be 1..500 and since_minutes must be positive")
 	}
-	if target.Backend == "systemd" {
-		flags := []string{"--no-pager", "--output=short-iso", "--lines=" + strconv.Itoa(lines), "--since=-" + strconv.Itoa(minutes) + "min"}
-		if target.Scope == "user" {
-			flags = append(flags, "--user")
+	if target.Backend == "docker" {
+		if args.Priority != "" || args.Boot != "" {
+			return remote.Command{}, errors.New("tools: priority and boot are only supported for systemd")
 		}
-		if target.Name != "" {
-			if target.Scope == "user" {
-				flags = append(flags, "--user-unit="+target.Name)
-			} else {
-				flags = append(flags, "--unit="+target.Name)
-			}
-		}
-		return remote.Command{Program: "journalctl", Args: flags}, nil
+		return remote.Command{Program: "docker", Args: []string{"logs", "--timestamps", "--tail=" + strconv.Itoa(lines), "--since=" + strconv.Itoa(minutes) + "m", "--", target.Name}}, nil
 	}
-	return remote.Command{Program: "docker", Args: []string{"logs", "--timestamps", "--tail=" + strconv.Itoa(lines), "--since=" + strconv.Itoa(minutes) + "m", "--", target.Name}}, nil
+	priorityFlag, err := journalPriority(args.Priority)
+	if err != nil {
+		return remote.Command{}, err
+	}
+	bootFlag, err := journalBoot(args.Boot)
+	if err != nil {
+		return remote.Command{}, err
+	}
+	flags := []string{"--no-pager", "--output=short-iso", "--lines=" + strconv.Itoa(lines), "--since=-" + strconv.Itoa(minutes) + "min"}
+	if priorityFlag != "" {
+		flags = append(flags, priorityFlag)
+	}
+	if bootFlag != "" {
+		flags = append(flags, bootFlag)
+	}
+	if target.Scope == "user" {
+		flags = append(flags, "--user")
+	}
+	if target.Name != "" {
+		if target.Scope == "user" {
+			flags = append(flags, "--user-unit="+target.Name)
+		} else {
+			flags = append(flags, "--unit="+target.Name)
+		}
+	}
+	return remote.Command{Program: "journalctl", Args: flags}, nil
 }
 
 func (t *Tools) ServiceLogs(ctx context.Context, args toolArgs) (string, error) {

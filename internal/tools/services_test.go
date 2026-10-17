@@ -147,6 +147,54 @@ func TestServiceLogs(t *testing.T) {
 	}
 }
 
+func TestJournalFilters(t *testing.T) {
+	bootID := strings.Repeat("a", 32)
+	for _, tc := range []struct {
+		name, raw string
+		want      []string
+	}{
+		{"priority and previous boot", `{"service":"nginx","priority":"err","boot":"previous"}`, []string{"--priority=err", "--boot=-1", "--unit=nginx.service"}},
+		{"current boot", `{"boot":"current"}`, []string{"--boot=0"}},
+		{"explicit boot id", `{"boot":"` + bootID + `"}`, []string{"--boot=" + bootID}},
+		{"user priority", `{"scope":"user","priority":"crit"}`, []string{"--priority=crit", "--user"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			argsFile := fakeCommand(t, "journalctl", "log entry\n", "", "0")
+			out, err := Registry(&remote.Runner{})["get_service_logs"](context.Background(), json.RawMessage(tc.raw))
+			if err != nil || out != "log entry\n" {
+				t.Fatalf("logs: %q %v", out, err)
+			}
+			args, err := os.ReadFile(argsFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(string(args), want+"\n") {
+					t.Fatalf("journal arguments missing %q: %s", want, args)
+				}
+			}
+		})
+	}
+}
+
+func TestJournalFilterValidation(t *testing.T) {
+	for _, raw := range []string{
+		`{"priority":"ERROR"}`, `{"priority":"err..warning"}`, `{"priority":"0"}`, `{"priority":"err; id"}`,
+		`{"boot":"last"}`, `{"boot":"0"}`, `{"boot":"-1"}`, `{"boot":"` + strings.Repeat("A", 32) + `"}`,
+		`{"boot":"` + strings.Repeat("a", 31) + `"}`, `{"boot":"` + strings.Repeat("a", 33) + `"}`,
+		`{"backend":"docker","service":"web","priority":"err"}`,
+		`{"backend":"docker","service":"web","boot":"current"}`,
+	} {
+		args, err := decodeArgs(json.RawMessage(raw))
+		if err != nil {
+			continue
+		}
+		if _, err := serviceLogsCommand(args); err == nil {
+			t.Fatalf("invalid journal filter accepted: %s", raw)
+		}
+	}
+}
+
 func TestUserSystemdStatusAndLogs(t *testing.T) {
 	for _, tool := range []string{"get_service_status", "get_service_logs"} {
 		t.Run(tool, func(t *testing.T) {

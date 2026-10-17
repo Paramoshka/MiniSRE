@@ -61,7 +61,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `get_top_processes` | `sort_by`, default `memory`; `limit`, default `10` | descending ranking by RSS or lifetime-average CPU, with PID, user, CPU%, MEM%, RSS in KiB and process name |
 | `search_processes` | required `pattern`; `limit=100` | case-insensitive literal name search across all visible processes, returning PID and name |
 | `get_service_status` | required `service`; `backend`, default `systemd`; `scope`, default `system` | systemd unit state or Docker container `.State` |
-| `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes` | recent journal or container logs |
+| `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes`, `priority`, `boot` | recent journal or container logs; systemd priority and boot filters |
 | `list_failed_services` | `scope`, default `system` | failed systemd units via `systemctl --failed`; empty output means none in that scope |
 | `list_containers` | `running_only=false`, `limit=100` | Docker containers with ID, name, image, state, status and ports; includes stopped containers by default |
 | `read_file` | required `path`; `start_line=1`, `lines=100`, `tail=false` | read a line range or the last lines of one file |
@@ -119,6 +119,14 @@ Logs default to the last 100 records from the last 60 minutes. `lines` must be
 included. There is no follow mode. Journal access depends on the selected user's
 permissions; a restricted journal can contain fewer records than the full
 system journal.
+
+For systemd, `priority` selects a minimum severity: `err` includes `emerg` through
+`err`, and the allowed values are `emerg`, `alert`, `crit`, `err`, `warning`,
+`notice`, `info` and `debug`. `boot` accepts `current`, `previous`, or a
+32-character lowercase hexadecimal boot ID. These filters are useful for kernel
+errors and OOM events and for checking whether an incident happened before a
+reboot. The relative `since_minutes` window still applies, so use a large enough
+value with `boot=previous`. `priority` and `boot` are rejected for Docker logs.
 
 ## Processes
 
