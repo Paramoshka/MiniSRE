@@ -73,6 +73,11 @@ func Specs() []Spec {
 			Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"service":{"type":"string"},"backend":{"type":"string","enum":["systemd","docker"]},"scope":{"type":"string","enum":["system","user"],"description":"Systemd only: system (default) or the executing user's journal."},"lines":{"type":"integer","minimum":1,"maximum":500},"since_minutes":{"type":"integer","minimum":1}},"additionalProperties":false}`),
 		},
 		{
+			Name:        "list_containers",
+			Description: "List Docker containers with ID, name, image, state, status and ports. Includes stopped containers by default; running_only=true hides them. limit defaults to 100 and accepts 1..500 rows. Requires Docker CLI and daemon access. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"running_only":{"type":"boolean","description":"Only running containers; default false (include stopped)."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Maximum rows returned; default 100."}},"additionalProperties":false}`),
+		},
+		{
 			Name:        "read_file",
 			Description: "Read a range of lines or the last lines of one regular file. Requires an absolute path; hidden components are forbidden in both the requested path and resolved symlink target. Sensitive /proc files (environ, cmdline, mem, fd, fdinfo) are forbidden. Defaults: host_id=local, start_line=1, lines=100. Set tail=true to read the end; do not supply start_line with tail=true. No follow mode.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"path":{"type":"string","description":"Absolute path to one regular file; hidden components, . and .. are forbidden."},"start_line":{"type":"integer","minimum":1,"description":"First line, numbered from 1; default 1. Cannot be supplied with tail=true."},"lines":{"type":"integer","minimum":1,"maximum":500,"description":"Number of lines; default 100."},"tail":{"type":"boolean","description":"Read the last lines instead of a range; default false."}},"required":["path"],"additionalProperties":false}`),
@@ -176,6 +181,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.ServiceStatus(ctx, args.HostID, args.ServiceTarget)
 			case "list_failed_services":
 				out, err = t.FailedServices(ctx, args.HostID, args.Scope)
+			case "list_containers":
+				out, err = t.Containers(ctx, args)
 			case "get_service_logs":
 				out, err = t.ServiceLogs(ctx, args)
 			case "read_file":
@@ -228,6 +235,7 @@ type toolArgs struct {
 	Limit        *int   `json:"limit"`
 	StartLine    *int   `json:"start_line"`
 	Tail         bool   `json:"tail"`
+	RunningOnly  bool   `json:"running_only"`
 	Pattern      string `json:"pattern"`
 	Regex        bool   `json:"regex"`
 	IgnoreCase   bool   `json:"ignore_case"`

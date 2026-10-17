@@ -180,6 +180,10 @@ func (t *Tools) sourceStage(ctx context.Context, name string, args toolArgs) (re
 		stage.HeadLines = limit
 	case "get_service_status":
 		cmd, _, err = serviceStatusCommand(args.ServiceTarget)
+	case "list_containers":
+		var limit int
+		cmd, limit, err = containersCommand(args)
+		stage.HeadLines = limit
 	case "read_file":
 		cmd, err = t.readFileCommand(ctx, args)
 	case "search_file":

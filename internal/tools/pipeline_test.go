@@ -137,7 +137,7 @@ func TestPipelineSourcesUseExistingPreparation(t *testing.T) {
 		{"get_disk_usage", "df", `{}`}, {"get_top_processes", "ps", `{"limit":1}`},
 		{"search_processes", "pgrep", `{"pattern":"worker"}`},
 		{"get_service_status", "systemctl", `{"service":"nginx"}`}, {"get_service_logs", "journalctl", `{}`},
-		{"list_failed_services", "systemctl", `{}`},
+		{"list_failed_services", "systemctl", `{}`}, {"list_containers", "docker", `{}`},
 		{"get_ip_rules", "ip", `{}`}, {"get_ip_routes", "ip", `{"table":"default"}`},
 		{"get_route_to", "ip", `{"destination":"127.0.0.1","mark":42}`}, {"ping_host", "ping", `{"destination":"127.0.0.1"}`},
 		{"get_network_sockets", "ss", `{}`}, {"get_network_interfaces", "ip", `{}`}, {"get_ip_neighbors", "ip", `{}`},
