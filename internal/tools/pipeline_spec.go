@@ -1,9 +1,20 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 )
+
+func pipelineDefinition(sources []Spec) Definition {
+	spec := pipelineSpec(sources)
+	return Definition{
+		Name: spec.Name, Description: spec.Description, Parameters: spec.Parameters,
+		Run: func(ctx context.Context, t *Tools, raw json.RawMessage) (string, error) {
+			return t.Pipeline(ctx, raw)
+		},
+	}
+}
 
 func pipelineExcluded(name string) bool {
 	switch name {

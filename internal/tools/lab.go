@@ -11,13 +11,24 @@ import (
 	"mini-sre/internal/lab"
 )
 
-func labSpecs() []Spec {
-	return []Spec{
+func labDefinitions() []Definition {
+	specs := []Spec{
 		{Name: "lab_deploy", Description: "Create and configure one bounded containerlab lab, only when the user requests creation. Requires explicitly configured host_id. topo_yaml is restricted YAML: name; nodes mapping (profile=frr|alpine, interfaces mapping lo or linked eth1..eth99 to IPv4 CIDR lists, routes list with destination CIDR/via IPv4/interface, forwarding boolean, frr_config text for BGP/OSPF); links list of [node:eth1,node:eth1] pairs. No containerlab passthrough fields or shell commands. Name gets msre-lab- prefix. At most 8 nodes, 256 MiB and 0.5 CPU each; one active lab per host. TTL defaults to 60 minutes. Uses preloaded approved images and reserved management network; validates host conflicts before deployment. Config syntax supports frr defaults, hostname, service integrated-vtysh-config, router bgp/ospf, router IDs, neighbor remote-as/activate, address-family ipv4 unicast, network (optionally area), redistribute connected/static, passive-interface, ip ospf area, no bgp ebgp-requires-policy/network import-check, exit and comments.", Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","minLength":1},"topo_yaml":{"type":"string","minLength":1,"maxLength":262144},"ttl_minutes":{"type":"integer","minimum":5,"maximum":120}},"required":["host_id","topo_yaml"],"additionalProperties":false}`)},
 		{Name: "lab_inspect", Description: "Inspect containerlab labs on an explicitly configured lab host. Optional name selects one lab. Returns JSON with nodes, management IPs, states and links/TTL for helper-managed labs. Does not deploy or change labs.", Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","minLength":1},"name":{"type":"string","minLength":1}},"required":["host_id"],"additionalProperties":false}`)},
 		{Name: "lab_run", Description: "Run 1..4 bounded diagnostics inside one containerlab node discovered through lab_inspect. Requires host_id, lab name and node name. Checks: interfaces, routes, neighbors, bgp, ospf, ping (3 packets), traceroute (8 hops), tcpdump (20 packets, timeout 14 seconds). ping/traceroute require an IPv4 destination; ping/tcpdump optionally accept interface. Each result includes exit_code, timed_out, truncated, stdout/stderr. A completed execution is not proof of healthy connectivity. No arbitrary commands, packet filters or host/shared network namespaces.", Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","minLength":1},"name":{"type":"string","minLength":1},"node":{"type":"string","minLength":1},"checks":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{"type":{"type":"string","enum":["interfaces","routes","neighbors","bgp","ospf","ping","traceroute","tcpdump"]},"destination":{"type":"string"},"interface":{"type":"string"}},"required":["type"],"additionalProperties":false}}},"required":["host_id","name","node","checks"],"additionalProperties":false}`)},
 		{Name: "lab_destroy", Description: "Remove only labs registered to the host helper, when the user explicitly requests deletion. Supply name OR all_mine=true. Never removes other containerlab labs. TTL cleanup works independently on the lab host.", Parameters: json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","minLength":1},"name":{"type":"string","minLength":1},"all_mine":{"type":"boolean"}},"required":["host_id"],"additionalProperties":false}`)},
 	}
+	defs := make([]Definition, 0, len(specs))
+	for _, spec := range specs {
+		name := spec.Name
+		defs = append(defs, Definition{
+			Name: spec.Name, Description: spec.Description, Parameters: spec.Parameters,
+			Run: func(ctx context.Context, t *Tools, raw json.RawMessage) (string, error) {
+				return t.Lab(ctx, name, raw)
+			},
+		})
+	}
+	return defs
 }
 
 type labArgs struct {

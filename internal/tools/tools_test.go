@@ -142,6 +142,19 @@ func TestRegistry(t *testing.T) {
 	}
 }
 
+func TestDefinitions(t *testing.T) {
+	seen := make(map[string]bool)
+	for _, def := range definitions() {
+		if def.Name == "" || def.Description == "" || len(def.Parameters) == 0 || def.Run == nil {
+			t.Errorf("incomplete definition: %+v", def)
+		}
+		if seen[def.Name] {
+			t.Errorf("duplicate tool definition %q", def.Name)
+		}
+		seen[def.Name] = true
+	}
+}
+
 func TestSpecs(t *testing.T) {
 	specs := Specs()
 	if len(specs) != 31 {
