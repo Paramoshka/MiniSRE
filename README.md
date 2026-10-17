@@ -1,6 +1,6 @@
-# mini-sre
+# MiniSRE
 
-![mini-sre — on-call robot mascot](assets/readme-cover.png)
+![MiniSRE — on-call robot mascot](assets/readme-cover.png)
 
 An SRE assistant powered by DeepSeek (OpenAI-compatible API). Ask questions in
 CLI chat or Telegram; the agent checks the local machine or configured SSH hosts
