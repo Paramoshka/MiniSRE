@@ -159,6 +159,63 @@ func TestPipelineSourcesUseExistingPreparation(t *testing.T) {
 	}
 }
 
+func TestPipelineSchemaSourcesAndFilters(t *testing.T) {
+	var parameters json.RawMessage
+	for _, spec := range Specs() {
+		if spec.Name == "run_pipeline" {
+			parameters = spec.Parameters
+		}
+	}
+	if parameters == nil {
+		t.Fatal("run_pipeline spec is missing")
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(parameters, &schema); err != nil {
+		t.Fatal(err)
+	}
+	properties := schema["properties"].(map[string]any)
+	sourceVariants := properties["source"].(map[string]any)["oneOf"].([]any)
+	tcp, excluded := false, ""
+	for _, raw := range sourceVariants {
+		variant := raw.(map[string]any)["properties"].(map[string]any)
+		tool := variant["tool"].(map[string]any)["enum"].([]any)[0].(string)
+		switch tool {
+		case "check_tcp_port":
+			tcp = true
+		case "get_memory", "list_directory", "check_tls_certificate":
+			excluded = tool
+		}
+		if tool == "get_top_processes" {
+			args := variant["args"].(map[string]any)["properties"].(map[string]any)
+			modes := args["sort_by"].(map[string]any)["enum"].([]any)
+			if len(modes) != 2 || modes[0] != "memory" || modes[1] != "cpu" {
+				t.Fatalf("pipeline get_top_processes modes = %v", modes)
+			}
+		}
+	}
+	if !tcp || excluded != "" {
+		t.Fatalf("pipeline sources: tcp=%t unexpected=%q", tcp, excluded)
+	}
+	filterVariants := properties["filters"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	count, invert := false, false
+	for _, raw := range filterVariants {
+		props := raw.(map[string]any)["properties"].(map[string]any)
+		kind := props["type"].(map[string]any)["enum"].([]any)[0].(string)
+		if kind == "count" {
+			count = true
+			if _, ok := props["limit"]; !ok {
+				t.Error("count schema has no limit")
+			}
+		}
+		if kind == "grep" {
+			_, invert = props["invert"]
+		}
+	}
+	if !count || !invert {
+		t.Fatalf("pipeline filters: count=%t invert=%t", count, invert)
+	}
+}
+
 func TestPipelineRejectsUnsafeInputBeforeExecution(t *testing.T) {
 	argsFile := fakeCommand(t, "journalctl", "", "", "0")
 	for _, raw := range []string{
