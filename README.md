@@ -21,6 +21,50 @@ chat history across restarts and supports scheduled checks with incident alerts.
 
 ## Quick start
 
+### Install the Telegram bot
+
+On Linux with systemd (`x86_64` or `aarch64`), run as your regular user from a
+login/SSH session, **without sudo**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Paramoshka/MiniSRE/main/scripts/install.sh | bash
+```
+
+Requires Bash, curl, tar and sha256sum; Go is not needed. The installer downloads
+the latest GitHub Release, verifies its SHA256 checksum, and asks for your
+DeepSeek API key, Telegram bot token and numeric Telegram user ID through the
+terminal. Tokens are hidden while typing. It installs the bot in `~/mini-sre`,
+saves credentials and configuration with owner-only permissions, then enables
+and starts `mini-sre.service` as a systemd **user** service. Only your Telegram
+ID is allowed; SSH hosts can be added later to `~/mini-sre/hosts.yaml`.
+
+To keep the bot running after logout and start it at boot, the installer enables
+linger for your account using `sudo loginctl enable-linger "$(id -un)"` when
+needed, and verifies `Linger=yes`. Sudo may ask for your password. To check:
+
+```bash
+loginctl show-user "$(id -un)" -p Linger
+systemctl --user status mini-sre.service
+journalctl --user -u mini-sre.service -f
+```
+
+Run the same installation command to update; existing `.env`, `hosts.yaml`,
+history and tasks are preserved. To uninstall the service and binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Paramoshka/MiniSRE/main/scripts/install.sh | bash -s -- --uninstall
+```
+
+Uninstall keeps configuration, credentials, history and tasks, and leaves linger
+enabled for other user services. You can also download and inspect
+[the installer](scripts/install.sh) before running it with `bash install.sh` or
+`bash install.sh --uninstall`. To install without prompts, export
+`DEEPSEEK_API_KEY`, `TELEGRAM_BOT_TOKEN` and `TELEGRAM_USER_ID` before running it.
+These values are only used when creating missing configuration files. See
+[Telegram setup](docs/telegram.md) for proxies and service troubleshooting.
+
+### Run from source
+
 You need Go 1.25+, Linux and a DeepSeek API key. The agent uses installed command-line
 utilities; see [command dependencies](docs/tools.md#command-dependencies) for each
 probe. HTTP checks need curl 8.4 or newer.

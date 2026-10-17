@@ -21,6 +21,10 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Check installer
+        run: |
+          bash -n scripts/install.sh scripts/install_test.sh
+          bash scripts/install_test.sh
       - name: Check formatting
         run: |
           files=$(gofmt -l .)

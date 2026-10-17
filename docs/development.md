@@ -11,12 +11,16 @@ gofmt -l .
 go build ./...
 go vet ./...
 go test -race ./...
+bash -n scripts/install.sh scripts/install_test.sh
+bash scripts/install_test.sh
 ```
 
 ## CI and releases
 
 [CI and release](../.github/workflows/ci.yml) runs these checks on pushes to
 `main`, pull requests and version tags. It uses the Go version from `go.mod`.
+Installer tests use temporary home directories and mocked network, systemd and
+loginctl commands; they never change the real user's services or linger setting.
 After the checks pass, it builds Linux `amd64` and `arm64` binaries with CGO
 disabled and uploads a `mini-sre-linux` workflow artifact (retained for 14 days).
 Each archive contains `mini-sre`, the example user service and `hosts.example.yaml`.
@@ -38,9 +42,9 @@ existing releases. GitHub Actions must be enabled for the repository.
 Published assets are available without a Go installation or an Actions login:
 
 ```text
-https://github.com/Paramoshka/mini-sre/releases/latest/download/mini-sre_linux_amd64.tar.gz
-https://github.com/Paramoshka/mini-sre/releases/latest/download/mini-sre_linux_arm64.tar.gz
-https://github.com/Paramoshka/mini-sre/releases/latest/download/checksums.txt
+https://github.com/Paramoshka/MiniSRE/releases/latest/download/mini-sre_linux_amd64.tar.gz
+https://github.com/Paramoshka/MiniSRE/releases/latest/download/mini-sre_linux_arm64.tar.gz
+https://github.com/Paramoshka/MiniSRE/releases/latest/download/checksums.txt
 ```
 
 The `latest` URLs become available after the first successful release. The

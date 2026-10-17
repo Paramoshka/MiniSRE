@@ -169,6 +169,13 @@ The README cover shares the same mascot; generation prompts are recorded in
 
 ## Run as a systemd user service
 
+For an automated installation from a prebuilt release, use the
+[README quick start](../README.md#install-the-telegram-bot). The installer sets
+up the user service, verifies linger, and supports `--uninstall` while preserving
+configuration and Telegram state. Re-running it updates the binary and restarts
+the service. Restart after editing `.env`; `hosts.yaml` reloads automatically.
+If startup fails, inspect `journalctl --user -u mini-sre.service -n 50`.
+
 For continuous operation, [examples/mini-sre.service](../examples/mini-sre.service)
 is a **user** systemd unit expecting the binary, `.env` and `hosts.yaml` in `~/mini-sre`. Adjust its paths if
 you keep the project elsewhere. Build the binary from the repository root,
@@ -183,5 +190,13 @@ systemctl --user enable --now mini-sre.service
 journalctl --user -u mini-sre.service
 ```
 
-For a user service to run without a login session, enable lingering for that
-account using `loginctl enable-linger USER` if your system permits it.
+For a user service to run after logout and at boot, enable lingering and verify
+it for the same account:
+
+```bash
+sudo loginctl enable-linger "$(id -un)"
+loginctl show-user "$(id -un)" -p Linger
+```
+
+The expected output is `Linger=yes`. Run `systemctl --user` commands as the
+regular account; do not install the user service with `sudo`.
