@@ -29,3 +29,11 @@ Composition/framing: wide landscape banner approximately 2.5:1; robot's head and
 Text (verbatim): "mini-sre" — only this text, lowercase, exact hyphen, large clean sans-serif typography.
 Constraints: retain the robot identity from Image 1; no extra characters, subtitles, slogans, watermark or brand logos. Finished raster artwork, not a GitHub screenshot.
 ```
+
+## README cover: MiniSRE name update
+
+Edited with the built-in `imagegen` tool using the existing README cover as the edit target.
+
+```text
+Use case: text-localization. Edit target: the provided existing MiniSRE GitHub README cover. Change ONLY the project title from "mini-sre" to exactly "MiniSRE" (M uppercase, ini lowercase, SRE uppercase; no hyphen, no spaces). Keep the existing robot mascot, thumbs-up pose, facial expression, casing, chest indicators, antenna, background, glowing ring, lighting, colors, composition and wide approximately 2.5:1 aspect ratio unchanged. Preserve the large clean sans-serif typography on the right, with "Mini" in white and "SRE" in cyan and the existing subtle glow. Fit the title inside the existing right-hand title area with comfortable margins. No other text, no new objects, no watermark. Return one finished replacement raster banner. Save the resulting image and return its local filesystem path so it can replace the project asset.
+```
