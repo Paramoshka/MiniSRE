@@ -118,6 +118,11 @@ func Specs() []Spec {
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"destination":{"type":"string","description":"One IP address without a zone or ASCII DNS hostname."},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"TCP port to connect to."}},"required":["destination","port"],"additionalProperties":false}`),
 		},
 		{
+			Name:        "check_tls_certificate",
+			Description: "Retrieve and verify the TLS certificate for one host and port with OpenSSL. Reports subject, issuer, validity and days remaining, SANs, key, protocol/cipher, chain length and hostname/chain verification. Optional server_name overrides SNI and the expected name. Verification failure is reported as data. Requires openssl 1.1.0+, Bash and timeout on the probe host. A valid certificate does not prove application health; the probe sends no application data.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"destination":{"type":"string","description":"One IP address without a zone or ASCII DNS hostname."},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"TLS port; default 443."},"server_name":{"type":"string","description":"Optional SNI and expected DNS name or IP address; defaults to destination."}},"required":["destination"],"additionalProperties":false}`),
+		},
+		{
 			Name:        "get_network_sockets",
 			Description: "Show TCP/UDP sockets with numeric endpoints and process details visible to the executing user. Defaults: host_id=local, protocol=both, state=listening, family=all. Filter by port on either endpoint. TCP connection states require protocol=tcp. Read-only; never closes sockets.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["all","ipv4","ipv6"]},"protocol":{"type":"string","enum":["both","tcp","udp"]},"state":{"type":"string","enum":["listening","all","established","syn-sent","syn-recv","time-wait","close-wait"]},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"Optional local or peer port."}},"additionalProperties":false}`),
@@ -211,6 +216,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.PingHost(ctx, args)
 			case "check_tcp_port":
 				out, err = t.TCPConnect(ctx, args)
+			case "check_tls_certificate":
+				out, err = t.TLSCertificate(ctx, args)
 			case "get_network_sockets":
 				out, err = t.NetworkSockets(ctx, args)
 			case "get_network_interfaces":
@@ -272,6 +279,7 @@ type toolArgs struct {
 	Query      string `json:"query"`
 	RecordType string `json:"record_type"`
 	Server     string `json:"server"`
+	ServerName string `json:"server_name"`
 
 	URL             string            `json:"url"`
 	Method          string            `json:"method"`

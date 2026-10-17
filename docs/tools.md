@@ -8,7 +8,7 @@ agent in natural language; the tool names below describe the API it uses.
 - [Command dependencies](#command-dependencies)
 - [Tool reference](#tool-reference)
 - [Services and logs](#services-and-logs), [processes](#processes), [memory and pressure](#memory-and-pressure), [files](#files)
-- [Network](#network-diagnostics), [DNS](#dns), [HTTP](#http-checks-and-downloads)
+- [Network](#network-diagnostics), [DNS](#dns), [HTTP](#http-checks-and-downloads), [TLS certificates](#tls-certificates)
 - [Pipelines and saved output](#pipelines-and-output-files)
 - [Execution limits and data access](#execution-limits-and-data-access)
 
@@ -46,6 +46,9 @@ probes also require Bash and GNU coreutils (`timeout`, `mktemp`, `mkdir`, `stat`
 These commands must be in the executing user's noninteractive PATH. No PTY or
 privilege escalation is used.
 
+TLS certificate probes require OpenSSL 1.1.0 or newer for `-verify_hostname` and
+`-verify_ip`, plus Bash and `timeout` on the probe host.
+
 ## Tool reference
 
 Diagnostic probes except `list_hosts` accept `host_id`, defaulting to `local`.
@@ -73,6 +76,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `get_route_to` | required IP `destination`; optional `source`, `mark`, `input_interface`, `output_interface` | the kernel's route lookup for the supplied packet attributes |
 | `ping_host` | required `destination`; `count=3`, `family=all`, optional `interface` | bounded ICMP echo probe to one IP address or DNS hostname |
 | `check_tcp_port` | required `destination`, `port` | one bounded TCP connection from the selected host; reports success or the connection error |
+| `check_tls_certificate` | required `destination`; `port=443`, optional `server_name` | certificate subject, issuer, validity, SANs, key, protocol/cipher and verification result |
 | `get_network_sockets` | `protocol=both`, `state=listening`, `family=all`, optional `port` | TCP/UDP sockets with numeric endpoints and visible process details |
 | `get_network_interfaces` | `family=all`, optional `interface` | IP addresses, link state, MTU and RX/TX counters |
 | `get_ip_neighbors` | `family=ipv4`, optional `interface` | ARP or NDP neighbor cache entries and states |
@@ -332,11 +336,34 @@ The transfer is capped at 10 MiB even without `Content-Length`; curl >= 8.4 is
 checked before the request. Failed downloads can retain a bounded partial file,
 marked `possibly_partial=true` in the error report.
 
+## TLS certificates
+
+`check_tls_certificate` connects to `destination:port` (default 443), retrieves the
+certificate chain with OpenSSL and reports the subject, issuer, validity window,
+days remaining, serial, SANs, public key, negotiated protocol/cipher, chain length
+and the OpenSSL verification result. Optional `server_name` overrides SNI and the
+expected name. For a DNS destination the probe sends SNI and verifies the hostname;
+for an IP destination it verifies the IP SAN without SNI. `server_name` may be a
+DNS name or an IP address.
+
+Verification uses the probe host's trust store. A failed verification, an expired
+or not-yet-valid certificate, or a connection failure is reported as diagnostic
+data, not as a tool execution error. A missing OpenSSL command is an error. The
+probe sends no application data, but it does establish a TLS connection. A valid
+certificate does not prove that the application behind it is healthy. The full
+OpenSSL output is not returned; only the parsed certificate details and any
+diagnostics are included.
+
+Example requests: "check the certificate for example.com", "when does the
+certificate on 192.0.2.10:8443 expire?", and "verify TLS for example.com using
+server name api.example.com".
+
 ## Pipelines and output files
 
 `run_pipeline` chooses a source by its existing tool name and arguments. Sources
 are all command-based diagnostic tools, including curl; `list_hosts`, `get_memory`,
-`list_directory`, nested pipelines and all `lab_*` tools are excluded. Source arguments keep their original
+`list_directory`, `check_tls_certificate`, nested pipelines and all `lab_*` tools are
+excluded. Source arguments keep their original
 validation and defaults. `host_id` belongs to the pipeline, and applies to every stage. Source
 streams contain raw command output rather than standalone human-readable
 formatting; top processes still respects its requested row limit. Interfaces
