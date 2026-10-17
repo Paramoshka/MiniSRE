@@ -42,6 +42,9 @@ func Registry(runner *remote.Runner) map[string]Func {
 	for _, def := range defs {
 		def := def
 		registry[def.Name] = func(ctx context.Context, raw json.RawMessage) (string, error) {
+			if err := validateArgKeys(def.Parameters, raw); err != nil {
+				return "", err
+			}
 			out, err := def.Run(ctx, t, raw)
 			if err != nil {
 				return "", errors.New(runner.Redact(err.Error()))
@@ -117,6 +120,30 @@ func decodeObject(raw json.RawMessage, target any) error {
 	var extra any
 	if dec.Decode(&extra) != io.EOF {
 		return errors.New("tools: expected one argument object")
+	}
+	return nil
+}
+
+// validateArgKeys rejects top-level arguments that the tool schema does not
+// declare, so fields belonging to other tools cannot be silently ignored.
+func validateArgKeys(parameters, raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var args map[string]json.RawMessage
+	if err := decodeObject(raw, &args); err != nil {
+		return err
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(parameters, &schema); err != nil {
+		return errors.New("tools: invalid tool schema")
+	}
+	for key := range args {
+		if _, ok := schema.Properties[key]; !ok {
+			return errors.New("tools: invalid arguments; check field names and types")
+		}
 	}
 	return nil
 }

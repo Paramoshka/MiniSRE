@@ -142,6 +142,23 @@ func TestRegistry(t *testing.T) {
 	}
 }
 
+func TestRegistryRejectsForeignArguments(t *testing.T) {
+	registry := Registry(&remote.Runner{})
+	for _, tc := range []struct {
+		name, raw string
+	}{
+		{"get_load_average", `{"count":5}`},
+		{"get_memory", `{"path":"/"}`},
+		{"list_hosts", `{"path":"/"}`},
+		{"run_pipeline", `{"source":{"tool":"get_load_average"},"bogus":true}`},
+		{"lab_inspect", `{"host_id":"local","topo_yaml":"name: demo"}`},
+	} {
+		if _, err := registry[tc.name](context.Background(), json.RawMessage(tc.raw)); err == nil {
+			t.Errorf("%s accepted arguments from another tool: %s", tc.name, tc.raw)
+		}
+	}
+}
+
 func TestDefinitions(t *testing.T) {
 	seen := make(map[string]bool)
 	for _, def := range definitions() {

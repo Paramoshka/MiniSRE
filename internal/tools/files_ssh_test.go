@@ -147,7 +147,11 @@ func TestFileToolsSSH(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"read_file", "search_file"} {
-		raw, err := json.Marshal(map[string]any{"host_id": "web", "path": link, "pattern": "secret"})
+		args := map[string]any{"host_id": "web", "path": link}
+		if name == "search_file" {
+			args["pattern"] = "secret"
+		}
+		raw, err := json.Marshal(args)
 		if err != nil {
 			t.Fatal(err)
 		}
