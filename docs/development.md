@@ -11,23 +11,32 @@ gofmt -l .
 go build ./...
 go vet ./...
 go test -race ./...
-bash -n scripts/install.sh scripts/install_test.sh
+bash -n scripts/*.sh
 bash scripts/install_test.sh
+bash scripts/install-lab-host_test.sh
 ```
 
 ## CI and releases
 
 [CI and release](../.github/workflows/ci.yml) runs these checks on pushes to
 `main`, pull requests and version tags. It uses the Go version from `go.mod`.
-Installer tests use temporary home directories and mocked network, systemd and
-loginctl commands; they never change the real user's services or linger setting.
+Installer tests use temporary directories and mocked network, Docker, systemd,
+sudoers and loginctl commands; they never change real services, sudoers or linger.
+Lab-host tests rewrite system paths in a temporary copy of the installer and mock
+root ownership so they also run without root. With `MINISRE_TEST_ARCHIVE` set to
+an absolute archive path, both suites verify the actual release payload. Lab tests
+execute the downloaded helper's usage check, then mock its installed `request`
+invocation because the real helper uses fixed system configuration/state paths.
 After the checks pass, it builds Linux `amd64` and `arm64` binaries with CGO
 disabled and uploads a `mini-sre-linux` workflow artifact (retained for 14 days).
-Each archive contains `mini-sre`, the example user service and `hosts.example.yaml`.
+Each archive contains `mini-sre`, the example user service and `hosts.example.yaml`,
+plus `mini-sre-lab`, its example config and sudoers, GC service/timer and
+`Dockerfile.lab` for local diagnostic image builds.
 `checksums.txt` contains SHA256 hashes for both archives.
 The binary's `--version` reports the version tag and short commit SHA embedded
 at build time (`dev` for branch builds). CI also checks this metadata by running
-the amd64 binary extracted from its archive. Ordinary local builds report
+the amd64 binary extracted from its archive and runs both installers' tests against
+the built amd64 archive. Ordinary local builds report
 `MiniSRE dev (unknown)`.
 
 To publish a release, push a stable version tag on the commit you want to ship:

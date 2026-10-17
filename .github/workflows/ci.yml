@@ -23,8 +23,9 @@ jobs:
           go-version-file: go.mod
       - name: Check installer
         run: |
-          bash -n scripts/install.sh scripts/install_test.sh
+          bash -n scripts/*.sh
           bash scripts/install_test.sh
+          bash scripts/install-lab-host_test.sh
       - name: Check formatting
         run: |
           files=$(gofmt -l .)
@@ -54,7 +55,12 @@ jobs:
             GOARCH="$arch" go build -trimpath \
               -ldflags "-X main.version=$version -X main.commit=$commit" \
               -o "dist/$package/mini-sre" ./cmd
+            GOARCH="$arch" go build -trimpath \
+              -o "dist/$package/mini-sre-lab" ./cmd/mini-sre-lab
             install -m 644 examples/mini-sre.service hosts.example.yaml "dist/$package/"
+            install -m 644 examples/mini-sre-lab.yaml examples/mini-sre-lab.sudoers \
+              examples/mini-sre-lab-gc.service examples/mini-sre-lab-gc.timer "dist/$package/"
+            install -m 644 examples/lab-images/Dockerfile "dist/$package/Dockerfile.lab"
             tar -C "dist/$package" -czf "dist/$package.tar.gz" .
           done
           cd dist
@@ -64,6 +70,12 @@ jobs:
           tar -xzf mini-sre_linux_amd64.tar.gz -C smoke
           actual=$(smoke/mini-sre --version)
           [[ "$actual" == "MiniSRE $version ($commit)" ]]
+      - name: Test installers with release archive
+        env:
+          MINISRE_TEST_ARCHIVE: ${{ github.workspace }}/dist/mini-sre_linux_amd64.tar.gz
+        run: |
+          bash scripts/install_test.sh
+          bash scripts/install-lab-host_test.sh
       - uses: actions/upload-artifact@v4
         with:
           name: mini-sre-linux

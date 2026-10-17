@@ -10,6 +10,68 @@ iproute2, GNU timeout and systemd. Executables are expected in `/usr/bin`.
 
 ## Install on the lab host
 
+### Automated installation
+
+The host must already have Linux with a running systemd system manager, Bash,
+curl, tar, sha256sum, GNU coreutils, sudo/visudo, Docker, containerlab and iproute2.
+The script supports `x86_64` and `aarch64`; Go and a repository checkout are not
+needed. Docker, containerlab, ip and GNU timeout must be available in `/usr/bin`,
+matching the helper's fixed executable paths. Root must be able to use the default
+local Docker daemon. The installed containerlab must support unprivileged Linux
+nodes; verify compatibility on a test host as described below.
+
+Download and inspect the script, then run it as root on the lab host:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Paramoshka/MiniSRE/main/scripts/install-lab-host.sh -o install-lab-host.sh
+sudo bash install-lab-host.sh --ssh-user YOUR_SSH_USER --mgmt-subnet 172.31.250.0/24
+```
+
+Use the existing non-root SSH account configured for this host in the bot. Reserve
+an unused private IPv4 `/24` that does not overlap host addresses, VPN/non-default
+routes or Docker networks; deployment checks these overlaps. The example subnet
+is not automatically reserved. Without the arguments, missing settings are requested
+through `/dev/tty`; unattended first installs must supply both arguments.
+
+The installer resolves the latest stable release once and verifies the selected
+architecture archive with SHA256. The release must contain the helper and lab
+assets; older releases produce an explicit error. It builds both local images
+using the pinned bases below and the same Docker daemon/environment as the helper.
+Base images and packages are downloaded during the build; no registry push or
+login is required. It then installs:
+
+- `/usr/local/sbin/mini-sre-lab`, root-owned and executable;
+- `/etc/mini-sre/lab.yaml`, mode `0600`, with `owner_id: mini-sre` and local image tags;
+- root-owned private state under `/var/lib/mini-sre/labs`;
+- `/etc/sudoers.d/mini-sre-lab`, mode `0440`, allowing only the exact helper `request` command;
+- the GC service and timer under `/etc/systemd/system`.
+
+It validates sudoers, checks the installed helper with an `inspect` request and
+enables the timer. The timer invokes the existing oneshot service every minute;
+there is no continuously running lab daemon.
+
+Repeat the installation command to update. Existing configuration, sudoers and lab
+records are preserved; arguments only create missing files. Both local images are
+rebuilt with Docker cache, and custom image references in an existing config are
+unchanged. Existing containers retain their original images. A failed build leaves
+the installed helper and units intact, but a completed Alpine build can update its
+local tag even if the subsequent FRR build fails. Installation is not transactional;
+after a later-stage failure, inspect the reported error and rerun the script.
+The script rejects unsafe destination ownership, writable paths and symlinks.
+It does not install missing host dependencies or provide an uninstall mode.
+
+Finally, enable the host in the bot's `hosts.yaml`, using its existing SSH host ID:
+
+```yaml
+lab_hosts: [lab-1]
+```
+
+Check cleanup with `systemctl list-timers mini-sre-lab-gc.timer` and
+`sudo journalctl -u mini-sre-lab-gc.service -n 50`. Complete the
+[test-host verification](#verification-on-a-test-host) before using a shared host.
+
+### Manual installation
+
 Build for that host's OS/architecture using this repository, then copy the
 binary and examples to the host. Run the following administrative commands
 there after reviewing the configuration:

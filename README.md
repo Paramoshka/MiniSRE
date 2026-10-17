@@ -65,6 +65,23 @@ enabled for other user services. You can also download and inspect
 These values are only used when creating missing configuration files. See
 [Telegram setup](docs/telegram.md) for proxies and service troubleshooting.
 
+### Prepare a containerlab host
+
+On a Linux systemd host with Docker and containerlab already installed, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Paramoshka/MiniSRE/main/scripts/install-lab-host.sh -o install-lab-host.sh
+sudo bash install-lab-host.sh --ssh-user YOUR_SSH_USER --mgmt-subnet 172.31.250.0/24
+```
+
+Choose an unused private `/24`; the subnet above is an example. The script installs
+the release helper and restricted sudo rule, builds Alpine/FRR diagnostic images
+locally, and enables a system timer for TTL cleanup every minute. Omit the arguments
+to enter settings interactively. Repeat the command to update; existing config,
+sudoers and lab state are preserved. This requires a release containing the lab
+helper. See [containerlab setup](docs/containerlab.md) for dependencies and enabling
+the host in the bot.
+
 ### Run from source
 
 You need Go 1.25+, Linux and a DeepSeek API key. The agent uses installed command-line
