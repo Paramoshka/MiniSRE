@@ -10,7 +10,7 @@ import (
 func TestLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hosts.yaml")
-	content := "known_hosts: known_hosts\nhosts:\n  web:\n    address: localhost\n    user: sre\n    key_file: id_ed25519\n  db:\n    address: 127.0.0.1\n    port: 2222\n    user: sre\n    password: secret\ntelegram:\n  allowed_user_ids: [123]\n"
+	content := "known_hosts: known_hosts\nhosts:\n  web:\n    address: localhost\n    user: sre\n    key_file: id_ed25519\n  db:\n    address: 127.0.0.1\n    port: 2222\n    user: sre\n    password: secret\n    jump_host: web\ntelegram:\n  allowed_user_ids: [123]\n"
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -20,6 +20,9 @@ func TestLoad(t *testing.T) {
 	}
 	if cfg.Hosts["web"].Port != 22 || cfg.Hosts["db"].Port != 2222 || cfg.Hosts["db"].Password != "secret" {
 		t.Fatal("host defaults or credentials were not loaded")
+	}
+	if cfg.Hosts["db"].JumpHost != "web" {
+		t.Fatal("jump_host was not loaded")
 	}
 	if cfg.KnownHosts != filepath.Join(dir, "known_hosts") || cfg.Hosts["web"].KeyFile != filepath.Join(dir, "id_ed25519") {
 		t.Fatal("relative paths were not resolved against config directory")
@@ -42,6 +45,11 @@ func TestLoadRejectsInvalidConfigWithoutSecrets(t *testing.T) {
 		valid + "telegram:\n  allowed_user_ids: [-1]\n",
 		valid + "lab_hosts: [missing]\n",
 		valid + "lab_hosts: [web, web]\n",
+		strings.Replace(valid, "password: secret", "password: secret\n    jump_host: local", 1),
+		strings.Replace(valid, "password: secret", "password: secret\n    jump_host: web", 1),
+		strings.Replace(valid, "password: secret", "password: secret\n    jump_host: missing", 1),
+		strings.Replace(valid, "password: secret", "password: secret\n    jump_host: ' web'", 1),
+		"hosts:\n  a:\n    address: localhost\n    user: sre\n    password: secret\n    jump_host: b\n  b:\n    address: localhost\n    user: sre\n    password: secret\n    jump_host: a\n",
 	}
 	for _, content := range tests {
 		path := filepath.Join(t.TempDir(), "hosts.yaml")

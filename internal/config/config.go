@@ -17,6 +17,7 @@ type Host struct {
 	User     string `yaml:"user"`
 	KeyFile  string `yaml:"key_file"`
 	Password string `yaml:"password"`
+	JumpHost string `yaml:"jump_host"`
 }
 
 type Config struct {
@@ -83,6 +84,18 @@ func Load(path string) (Config, error) {
 		}
 		if host.KeyFile != "" {
 			host.KeyFile = resolvePath(base, host.KeyFile)
+		}
+		if host.JumpHost != "" {
+			if strings.TrimSpace(host.JumpHost) != host.JumpHost || host.JumpHost == id || host.JumpHost == "local" {
+				return Config{}, fmt.Errorf("config: host %q has invalid jump_host", id)
+			}
+			jump, ok := cfg.Hosts[host.JumpHost]
+			if !ok {
+				return Config{}, fmt.Errorf("config: host %q refers to unknown jump_host", id)
+			}
+			if jump.JumpHost != "" {
+				return Config{}, fmt.Errorf("config: host %q jump_host must not use jump_host", id)
+			}
 		}
 		cfg.Hosts[id] = host
 	}
