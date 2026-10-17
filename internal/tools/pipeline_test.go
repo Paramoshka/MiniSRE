@@ -171,6 +171,9 @@ func TestPipelineRejectsUnsafeInputBeforeExecution(t *testing.T) {
 		`{"source":{"tool":"get_service_logs"},"stdout":"/tmp/file"}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"sed","script":"w /etc/file"}]}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"grep","pattern":"x","path":"/etc/passwd"}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"grep","pattern":"x","invert":"yes"}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"head","invert":true}]}`,
+		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"sed","invert":true}]}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"grep","pattern":""}]}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"head","lines":501}]}`,
 		`{"source":{"tool":"get_service_logs"},"filters":[{"type":"sed","start_line":0}]}`,
@@ -182,6 +185,15 @@ func TestPipelineRejectsUnsafeInputBeforeExecution(t *testing.T) {
 	}
 	if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
 		t.Fatal("source ran before validation")
+	}
+}
+
+func TestPipelineInvert(t *testing.T) {
+	fakeCommand(t, "journalctl", "error one\ninfo two\nERROR three\n", "", "0")
+	raw := json.RawMessage(`{"source":{"tool":"get_service_logs"},"filters":[{"type":"grep","pattern":"error","ignore_case":true,"invert":true}]}`)
+	out, err := Registry(&remote.Runner{})["run_pipeline"](context.Background(), raw)
+	if err != nil || !strings.Contains(out, "info two") || strings.Contains(out, "error one") || strings.Contains(out, "ERROR three") {
+		t.Fatalf("inverted grep = %q, %v", out, err)
 	}
 }
 

@@ -370,8 +370,9 @@ formatting; top processes still respects its requested row limit. Interfaces
 emit address output followed by link counters.
 
 Up to four stdin filters are allowed: `grep` (literal by default, optional
-`regex`/`ignore_case`, `limit=100`), `head`/`tail` (`lines=100`), or `sed` as a line
-range (`start_line=1`, `lines=100`). Match and line limits accept 1..500. No
+`regex`/`ignore_case`/`invert`, `limit=100`), `head`/`tail` (`lines=100`), or `sed` as
+a line range (`start_line=1`, `lines=100`). `invert=true` keeps lines that do not
+match and is valid only for `grep`. Match and line limits accept 1..500. No
 arbitrary programs, argv, shell expressions, sed scripts or filter file paths
 are exposed. Filters run before the final preview is limited, so a match beyond
 the first 64 KiB can still be found. Limiting filters drain their remaining input

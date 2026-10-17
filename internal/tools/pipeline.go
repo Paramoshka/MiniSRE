@@ -29,6 +29,7 @@ type pipelineFilter struct {
 	Pattern    string `json:"pattern"`
 	Regex      bool   `json:"regex"`
 	IgnoreCase bool   `json:"ignore_case"`
+	Invert     bool   `json:"invert"`
 	Limit      *int   `json:"limit"`
 	Lines      *int   `json:"lines"`
 	StartLine  *int   `json:"start_line"`
@@ -232,9 +233,12 @@ func filterStage(filter pipelineFilter) (remote.Stage, error) {
 		if filter.IgnoreCase {
 			cmd.Args = append(cmd.Args, "-i")
 		}
+		if filter.Invert {
+			cmd.Args = append(cmd.Args, "-v")
+		}
 		cmd.Args = append(cmd.Args, "-e", filter.Pattern)
 	case "head", "tail", "sed":
-		if filter.Pattern != "" || filter.Regex || filter.IgnoreCase || filter.Limit != nil || (filter.Type != "sed" && filter.StartLine != nil) {
+		if filter.Pattern != "" || filter.Regex || filter.IgnoreCase || filter.Invert || filter.Limit != nil || (filter.Type != "sed" && filter.StartLine != nil) {
 			return remote.Stage{}, errors.New("tools: invalid line-filter arguments")
 		}
 		lines, start := 100, 1
