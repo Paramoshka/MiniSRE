@@ -14,7 +14,7 @@ and explains what it found.
 - Systemd services, failed units, Docker containers and their recent logs.
 - Kernel and journal errors by severity, including the previous boot.
 - Config files and directories: selected lines, matching text, or directory contents with types, sizes and symlink targets.
-- Network interfaces, routes, policy rules, neighbors, sockets and ping.
+- Network interfaces, routes, policy rules, neighbors, sockets, ping and TCP port reachability.
 - DNS with dig/nslookup; HTTP with curl, including bounded downloads.
 - Filter diagnostic output and save it in a private directory under `/tmp`.
 - Create, inspect and clean up bounded FRR/Alpine containerlab labs on explicitly enabled hosts.

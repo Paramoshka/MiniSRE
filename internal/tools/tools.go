@@ -113,6 +113,11 @@ func Specs() []Spec {
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"destination":{"type":"string","description":"One IP address or ASCII DNS hostname; use interface for IPv6 link-local scope."},"family":{"type":"string","enum":["all","ipv4","ipv6"]},"interface":{"type":"string","description":"Optional outgoing interface name."},"count":{"type":"integer","minimum":1,"maximum":5,"description":"Number of echo requests; default 3."}},"required":["destination"],"additionalProperties":false}`),
 		},
 		{
+			Name:        "check_tcp_port",
+			Description: "Open one bounded TCP connection from the selected host to one IP address or DNS hostname and port, with a 5-second timeout. Reports success or the connection error; no application data is sent. A successful handshake does not prove application health. Requires Bash and timeout on the probe host. Defaults: host_id=local; port is required. Active probe; does not change host configuration.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"destination":{"type":"string","description":"One IP address without a zone or ASCII DNS hostname."},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"TCP port to connect to."}},"required":["destination","port"],"additionalProperties":false}`),
+		},
+		{
 			Name:        "get_network_sockets",
 			Description: "Show TCP/UDP sockets with numeric endpoints and process details visible to the executing user. Defaults: host_id=local, protocol=both, state=listening, family=all. Filter by port on either endpoint. TCP connection states require protocol=tcp. Read-only; never closes sockets.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["all","ipv4","ipv6"]},"protocol":{"type":"string","enum":["both","tcp","udp"]},"state":{"type":"string","enum":["listening","all","established","syn-sent","syn-recv","time-wait","close-wait"]},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"Optional local or peer port."}},"additionalProperties":false}`),
@@ -204,6 +209,8 @@ func Registry(runner *remote.Runner) map[string]Func {
 				out, err = t.RouteTo(ctx, args)
 			case "ping_host":
 				out, err = t.PingHost(ctx, args)
+			case "check_tcp_port":
+				out, err = t.TCPConnect(ctx, args)
 			case "get_network_sockets":
 				out, err = t.NetworkSockets(ctx, args)
 			case "get_network_interfaces":

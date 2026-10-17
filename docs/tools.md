@@ -34,7 +34,8 @@ user's noninteractive PATH.
 Network probes require `ip` and `ss` from iproute2, and `ping` from iputils.
 They must also be available in the SSH user's noninteractive PATH. ICMP socket
 permissions depend on the host's ping configuration; failures are reported
-without attempting to elevate privileges.
+without attempting to elevate privileges. `check_tcp_port` also requires Bash and
+`timeout` on the probe host.
 
 DNS probes require BIND `dig` and `nslookup`, locally or in the SSH user's
 noninteractive PATH.
@@ -71,6 +72,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `get_ip_routes` | `family=ipv4`, `table=main`, optional `interface` | routes from one table or `all` tables |
 | `get_route_to` | required IP `destination`; optional `source`, `mark`, `input_interface`, `output_interface` | the kernel's route lookup for the supplied packet attributes |
 | `ping_host` | required `destination`; `count=3`, `family=all`, optional `interface` | bounded ICMP echo probe to one IP address or DNS hostname |
+| `check_tcp_port` | required `destination`, `port` | one bounded TCP connection from the selected host; reports success or the connection error |
 | `get_network_sockets` | `protocol=both`, `state=listening`, `family=all`, optional `port` | TCP/UDP sockets with numeric endpoints and visible process details |
 | `get_network_interfaces` | `family=all`, optional `interface` | IP addresses, link state, MTU and RX/TX counters |
 | `get_ip_neighbors` | `family=ipv4`, optional `interface` | ARP or NDP neighbor cache entries and states |
@@ -261,6 +263,16 @@ result with an explicit failure note; command errors remain errors. Missing
 ICMP replies can mean filtering, and successful ping does not prove application
 health. Route lookup also does not prove that packets reach the destination.
 
+`check_tcp_port` opens one TCP connection from the selected host to one IP address
+or ASCII DNS hostname and a required port (1..65535). The connection attempt has a
+five-second deadline. Connection refusal, timeout and DNS failures are diagnostic
+results; a missing Bash or `timeout` command is an error. The probe sends no
+application data and changes no host configuration, but it does create a TCP
+connection. A successful handshake proves only L4 reachability; it does not prove
+that the service is healthy or that the peer completed its own startup checks.
+The destination must be an IP address without a zone or an ASCII DNS name; use
+`ping_host` for ICMP and `curl_http` for HTTP-level checks.
+
 Socket queries accept `protocol=tcp`, `udp` or `both`. States are `listening`
 (default), `all`, `established`, `syn-sent`, `syn-recv`, `time-wait` or `close-wait`;
 connection states require `protocol=tcp`. `port=1..65535` matches either endpoint.
@@ -342,9 +354,10 @@ to avoid a misleading upstream SIGPIPE error.
 `merge`, joining each stage's stderr into its stdout before the next filter.
 Defaults are separate inline streams. Discarding both streams is the equivalent
 of hiding data with `>/dev/null 2>&1`; execution status remains visible. Every
-stage's exit code is returned. Grep exit code 1 means an empty result, and ping
-exit code 1 retains its packet-loss meaning; other unexpected codes are errors.
-Execution status does not establish service or application health.
+stage's exit code is returned. Grep exit code 1 means an empty result, ping
+exit code 1 retains its packet-loss meaning, and `check_tcp_port` exit codes 1 and
+124 retain their connection-failure and timeout meanings; other unexpected codes
+are errors. Execution status does not establish service or application health.
 
 Example: nginx logs containing errors, last 50 matches, saved on `web`:
 

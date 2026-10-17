@@ -98,13 +98,16 @@ func pipelineStageSucceeded(source string, filters []pipelineFilter, index, code
 	if code == 0 {
 		return true
 	}
-	if code != 1 {
+	if index == 0 {
+		switch source {
+		case "ping_host", "search_file", "search_processes":
+			return code == 1
+		case "check_tcp_port":
+			return code == 1 || code == 124
+		}
 		return false
 	}
-	if index == 0 {
-		return source == "ping_host" || source == "search_file" || source == "search_processes"
-	}
-	return filters[index-1].Type == "grep"
+	return code == 1 && filters[index-1].Type == "grep"
 }
 
 func pipelineSourceArgs(name string, raw json.RawMessage) (toolArgs, error) {
@@ -145,6 +148,7 @@ var pipelineCommands = map[string]func(toolArgs) (remote.Command, error){
 	"get_ip_routes":        ipRoutesCommand,
 	"get_route_to":         routeToCommand,
 	"ping_host":            pingCommand,
+	"check_tcp_port":       tcpCommand,
 	"get_network_sockets":  socketsCommand,
 	"get_ip_neighbors":     neighborsCommand,
 	"dig_dns":              digCommand,
