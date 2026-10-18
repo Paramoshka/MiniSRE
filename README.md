@@ -135,7 +135,7 @@ account, they run this block with `<PUBLIC_KEY>` replaced by that line:
 
 ```bash
 sudo useradd --create-home --user-group --shell /bin/bash mini-sre
-sudo passwd mini-sre
+sudo usermod -p '*' mini-sre
 sudo usermod -aG systemd-journal,docker mini-sre
 sudo install -d -m 700 -o mini-sre -g mini-sre /home/mini-sre/.ssh
 echo '<PUBLIC_KEY>' | sudo tee /home/mini-sre/.ssh/authorized_keys >/dev/null
@@ -143,12 +143,14 @@ sudo chown mini-sre:mini-sre /home/mini-sre/.ssh/authorized_keys
 sudo chmod 600 /home/mini-sre/.ssh/authorized_keys
 ```
 
-Set a long random password when prompted. Some sshd configurations refuse key
-authentication for accounts with a locked password and log `User mini-sre not
-allowed because account is locked`; MiniSRE never uses this password. The
+`usermod -p '*'` sets a password hash that matches no password: password login
+stays impossible, but sshd no longer treats the account as locked. Some sshd
+configurations refuse key authentication for locked accounts and log `User
+mini-sre not allowed because account is locked`; MiniSRE uses only the key. The
 account has no `sudo` access. The `docker` group is effectively root-equivalent,
 and Docker must already be installed. If `mini-sre` already exists, skip the
-`useradd` command; run `passwd` if the account is locked, then rerun the rest.
+`useradd` command; run `usermod -p '*'` if the account is locked, then rerun the
+rest.
 
 Add the host key. The administrator prints the host fingerprint:
 
