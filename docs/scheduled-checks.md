@@ -43,7 +43,8 @@ that limitation clear.
 
 On enabled lab hosts, scheduled checks can use `lab_inspect` and `lab_run`.
 `lab_deploy` and `lab_destroy` are removed from scheduled tool schemas and
-blocked at execution. Lab TTL cleanup runs independently on the lab host.
+blocked at execution. `measure_throughput` is excluded globally for the same
+reason. Lab TTL cleanup runs independently on the lab host.
 
 ## Results and notifications
 

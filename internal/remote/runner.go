@@ -55,6 +55,19 @@ func (r *Runner) Run(ctx context.Context, hostID, program string, args ...string
 	return r.run(ctx, hostID, false, program, args...)
 }
 
+// RunBounded runs one command with an explicit deadline instead of the
+// standard command timeout. It is intended for probes that must outlive the
+// 15-second budget, such as a temporary throughput server. Cancellation stops
+// the local process group or signals the timeout wrapper; over SSH it also
+// closes the transport, and an independent remote watchdog bounds a child that
+// survives the disconnect.
+func (r *Runner) RunBounded(ctx context.Context, hostID string, timeout time.Duration, program string, args ...string) (Result, error) {
+	if timeout <= 0 {
+		timeout = commandTimeout
+	}
+	return r.runInput(ctx, hostID, true, timeout, nil, program, args...)
+}
+
 func (r *Runner) run(ctx context.Context, hostID string, processGroup bool, program string, args ...string) (Result, error) {
 	return r.runInput(ctx, hostID, processGroup, commandTimeout, nil, program, args...)
 }

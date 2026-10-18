@@ -52,6 +52,21 @@ func TestLocalCommands(t *testing.T) {
 	}
 }
 
+func TestRunBounded(t *testing.T) {
+	r := &Runner{}
+	result, err := r.RunBounded(context.Background(), "local", 50*time.Millisecond, "sleep", "10")
+	if !errors.Is(err, context.DeadlineExceeded) || result.ExitCode != -1 {
+		t.Fatalf("bounded command timeout: %+v, %v", result, err)
+	}
+	result, err = r.RunBounded(context.Background(), "local", time.Second, "printf", "%s", "bounded")
+	if err != nil || result.Stdout != "bounded" || result.ExitCode != 0 {
+		t.Fatalf("bounded command result: %+v, %v", result, err)
+	}
+	if result, err := r.RunBounded(context.Background(), "local", 0, "true"); err != nil || result.ExitCode != 0 {
+		t.Fatalf("zero timeout should use the default: %+v, %v", result, err)
+	}
+}
+
 func TestOutputLimitAndRedaction(t *testing.T) {
 	r := &Runner{Config: config.Config{Hosts: map[string]config.Host{"web": {Password: "secret-password"}}}}
 	result, err := r.Run(context.Background(), "local", "sh", "-c", "printf secret-password >&2; head -c 100000 /dev/zero")

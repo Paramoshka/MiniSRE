@@ -8,7 +8,7 @@ agent in natural language; the tool names below describe the API it uses.
 - [Command dependencies](#command-dependencies)
 - [Tool reference](#tool-reference)
 - [Services and logs](#services-and-logs), [processes](#processes), [memory and pressure](#memory-and-pressure), [files](#files)
-- [Network](#network-diagnostics), [DNS](#dns), [HTTP](#http-checks-and-downloads), [TLS certificates](#tls-certificates)
+- [Network](#network-diagnostics), [Throughput](#throughput-tests), [DNS](#dns), [HTTP](#http-checks-and-downloads), [TLS certificates](#tls-certificates)
 - [Pipelines and saved output](#pipelines-and-output-files)
 - [Execution limits and data access](#execution-limits-and-data-access)
 
@@ -40,7 +40,9 @@ Network probes require `ip` and `ss` from iproute2, and `ping` from iputils.
 They must also be available in the SSH user's noninteractive PATH. ICMP socket
 permissions depend on the host's ping configuration; failures are reported
 without attempting to elevate privileges. `check_tcp_port` also requires Bash and
-`timeout` on the probe host.
+`timeout` on the probe host. `measure_throughput` requires `iperf3` 3.x and GNU
+`timeout` on both hosts; the server host also needs `ss` from iproute2 to check
+that the port is free and confirm the temporary listener.
 
 DNS probes require BIND `dig` and `nslookup`, locally or in the SSH user's
 noninteractive PATH.
@@ -57,7 +59,8 @@ TLS certificate probes require OpenSSL 1.1.0 or newer for `-verify_hostname` and
 
 ## Tool reference
 
-Diagnostic probes except `list_hosts` accept `host_id`, defaulting to `local`.
+Diagnostic probes except `list_hosts` accept `host_id`, defaulting to `local`;
+`measure_throughput` instead takes explicit `server_host_id` and `client_host_id`.
 The optional [containerlab tools](containerlab.md) require an explicit enabled
 `host_id` and use a separately installed host helper.
 
@@ -82,6 +85,7 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `get_route_to` | required IP `destination`; optional `source`, `mark`, `input_interface`, `output_interface` | the kernel's route lookup for the supplied packet attributes |
 | `ping_host` | required `destination`; `count=3`, `family=all`, optional `interface` | bounded ICMP echo probe to one IP address or DNS hostname |
 | `check_tcp_port` | required `destination`, `port` | one bounded TCP connection from the selected host; reports success or the connection error |
+| `measure_throughput` | required `server_host_id`, `client_host_id`, `destination`, `bind_address`; `port=5201`, `duration=10` | temporary one-off iperf3 server and one TCP upload; summary bitrate, bytes and retransmits; active, mutating and not schedulable |
 | `check_tls_certificate` | required `destination`; `port=443`, optional `server_name` | certificate subject, issuer, validity, SANs, key, protocol/cipher and verification result |
 | `get_network_sockets` | `protocol=both`, `state=listening`, `family=all`, optional `port` | TCP/UDP sockets with numeric endpoints and visible process details |
 | `get_network_interfaces` | `family=all`, optional `interface` | IP addresses, link state, MTU and RX/TX counters |
@@ -308,6 +312,42 @@ web-1", "check the route to 192.0.2.5 from 192.0.2.1 with fwmark 42",
 "ping 192.0.2.5 three times", "show TCP close-wait sockets on port 443", and
 "check eth0 addresses, errors and neighbors".
 
+## Throughput tests
+
+`measure_throughput` runs one TCP upload between two configured hosts with
+iperf3. `server_host_id` and `client_host_id` are explicit and must differ;
+`local` can be either endpoint. `destination` is the server address as seen by
+the client: an IP address without a zone or an ASCII DNS name. `bind_address` is
+required and must be a unicast IP address owned by the server. When the server
+has several addresses, use `get_network_interfaces` and ask which address to
+bind; do not infer it from private ranges. Use a private address and an unused
+port: the tool refuses a port that is already listening, and the one-off server
+accepts the first client that connects. `port` defaults to 5201 and `duration`
+accepts 1..10 seconds (default 10). The test always uses one TCP stream and
+client-to-server direction; reverse, UDP and parallel streams are not exposed.
+
+The tool starts a temporary `iperf3 -s -1` on the server, bound to
+`bind_address`, waits for `ss` to show the listening port, runs
+`iperf3 -c destination -t duration -J` on the client, then stops the server. The
+server has a 35-second watchdog and the client caller has a duration+10-second
+limit. Both hosts must have `iperf3` 3.x and GNU `timeout`; the server host also
+needs `ss`. The temporary listener is removed after one client; the tool stops
+the server on a best-effort basis, and a hard crash is bounded by the 35-second
+watchdog. The test saturates the path for its duration and is excluded from
+scheduled checks.
+
+Connection refusal, timeout and DNS failures are diagnostic results; missing
+commands or invalid arguments are errors. The summary reports sender and
+receiver bitrates, transferred bytes, retransmits and status. It measures L4 TCP
+throughput only: it does not prove application performance, and a firewall or
+NAT path that blocks the port will make the test fail. The test requires an
+existing route from the client to `destination`; it does not create WireGuard,
+routes or firewall rules.
+
+Example requests: "measure upload throughput from proxy to node-1, server
+node-1, listen on 10.8.0.2", "run a 5-second iperf3 test from local to web-1 on
+port 5202", and "compare throughput from the proxy to both cluster nodes".
+
 ## DNS
 
 `dig_dns` and `nslookup_dns` accept one ASCII DNS name (including SRV underscores
@@ -383,8 +423,8 @@ server name api.example.com".
 
 `run_pipeline` chooses a source by its existing tool name and arguments. Sources
 are all command-based diagnostic tools, including curl; `list_hosts`, `get_memory`,
-`list_directory`, `check_tls_certificate`, nested pipelines and all `lab_*` tools are
-excluded. Source arguments keep their original
+`list_directory`, `check_tls_certificate`, `measure_throughput`, nested pipelines
+and all `lab_*` tools are excluded. Source arguments keep their original
 validation and defaults. `host_id` belongs to the pipeline, and applies to every stage. Source
 streams contain raw command output rather than standalone human-readable
 formatting; top processes still respects its requested row limit. In a pipeline,
@@ -457,13 +497,15 @@ Interrupted jobs can leave private temporary files.
 ## Execution limits and data access
 
 Each diagnostic command has a 15-second timeout, including SSH connection and handshake.
-Each tool call also has a 50-second overall limit, or 130 seconds for lab tools;
-its returned text is capped at 128 KiB with a truncation marker.
+`measure_throughput` is the exception: its temporary server has a 35-second
+watchdog and a 40-second caller limit, and its client has a duration+10-second
+caller limit. Each tool call also has a 50-second overall limit, or 130 seconds
+for lab tools; its returned text is capped at 128 KiB with a truncation marker.
 Lab requests instead have a 120-second host-side limit and a 125-second caller
 limit including SSH; each node diagnostic has its own 15-second limit. Lab
 privileges, resource constraints and cleanup are described in [Containerlab](containerlab.md).
-Scheduled checks receive only non-mutating tools; lab deployment and deletion
-are excluded.
+Scheduled checks receive only non-mutating tools; lab deployment, deletion and
+throughput tests are excluded.
 Captured stdout and stderr together are limited to 64 KiB, with an explicit
 truncation marker. Local arguments are passed directly to the process; SSH
 arguments are quoted for the remote shell. The model cannot supply a program or

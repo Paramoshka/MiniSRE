@@ -322,6 +322,15 @@ func baseDefinitions() []Definition {
 			}),
 		},
 		{
+			Name:        "measure_throughput",
+			Description: "Measure TCP upload throughput between two configured hosts with iperf3. Starts a temporary one-off iperf3 server on server_host_id bound to bind_address, runs a single-stream upload from client_host_id to destination (default 10 seconds), then stops the server. server_host_id and client_host_id must differ; destination is the server address as seen from the client; bind_address is the required server address to listen on. If the server has multiple addresses, use get_network_interfaces and ask the user which one to bind; also ask which host is the server and which is the client when the request is ambiguous. Both hosts need iperf3 3.x; the server also needs ss from iproute2, and both need GNU timeout. This saturates the link, is mutating and cannot be scheduled. A completed test measures L4 TCP throughput, not application performance. Defaults: port=5201, duration=10 (1..10).",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"server_host_id":{"type":"string","description":"Host ID from list_hosts that runs the temporary iperf3 server."},"client_host_id":{"type":"string","description":"Host ID from list_hosts that sends the upload; local is allowed and must differ from server_host_id."},"destination":{"type":"string","description":"Server IP address without a zone or ASCII DNS name, as seen from the client."},"bind_address":{"type":"string","description":"Required server IP address without a zone for iperf3 -B; it must exist on the server host."},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"TCP port; default 5201."},"duration":{"type":"integer","minimum":1,"maximum":10,"description":"Upload duration in seconds; default 10."}},"required":["server_host_id","client_host_id","destination","bind_address"],"additionalProperties":false}`),
+			Run: standard(func(ctx context.Context, t *Tools, args toolArgs) (string, error) {
+				return t.MeasureThroughput(ctx, args)
+			}),
+			Mutating: true,
+		},
+		{
 			Name:        "check_tls_certificate",
 			Description: "Retrieve and verify the TLS certificate for one host and port with OpenSSL. Reports subject, issuer, validity and days remaining, SANs, key, protocol/cipher, chain length and hostname/chain verification. Optional server_name overrides SNI and the expected name. Verification failure is reported as data. Requires openssl 1.1.0+, Bash and timeout on the probe host. A valid certificate does not prove application health; the probe sends no application data.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"destination":{"type":"string","description":"One IP address without a zone or ASCII DNS hostname."},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"TLS port; default 443."},"server_name":{"type":"string","description":"Optional SNI and expected DNS name or IP address; defaults to destination."}},"required":["destination"],"additionalProperties":false}`),

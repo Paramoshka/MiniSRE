@@ -89,6 +89,11 @@ type toolArgs struct {
 	State           string  `json:"state"`
 	Port            *int    `json:"port"`
 
+	ServerHostID string `json:"server_host_id"`
+	ClientHostID string `json:"client_host_id"`
+	BindAddress  string `json:"bind_address"`
+	Duration     *int   `json:"duration"`
+
 	Query      string `json:"query"`
 	RecordType string `json:"record_type"`
 	Server     string `json:"server"`

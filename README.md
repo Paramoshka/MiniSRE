@@ -15,6 +15,7 @@ and explains what it found.
 - Kernel and journal errors by severity, including the previous boot.
 - Config files and directories: selected lines, matching text, or directory contents with types, sizes and symlink targets.
 - Network interfaces, routes, policy rules, neighbors, sockets, ping, TCP port and TLS certificate checks.
+- TCP throughput between configured hosts with iperf3, using a temporary one-off server; active and not schedulable.
 - DNS with dig/nslookup; HTTP with curl, including bounded downloads.
 - Filter and count diagnostic output, invert matches, and save results in a private directory under `/tmp`.
 - Create, inspect and clean up bounded FRR/Alpine containerlab labs on explicitly enabled hosts.

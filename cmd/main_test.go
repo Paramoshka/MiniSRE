@@ -122,7 +122,7 @@ func TestConfiguredAgentUsesProbesWithoutExposingCredentials(t *testing.T) {
 					Function struct{ Name string } `json:"function"`
 				} `json:"tools"`
 			}
-			if err := json.Unmarshal(body, &req); err != nil || len(req.Tools) != 31 {
+			if err := json.Unmarshal(body, &req); err != nil || len(req.Tools) != 32 {
 				t.Errorf("tool definitions missing: %v, %d", err, len(req.Tools))
 			}
 			hasVMStat := false

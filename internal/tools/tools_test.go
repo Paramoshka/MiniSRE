@@ -155,6 +155,7 @@ func TestRegistryRejectsForeignArguments(t *testing.T) {
 		{"list_hosts", `{"path":"/"}`},
 		{"run_pipeline", `{"source":{"tool":"get_load_average"},"bogus":true}`},
 		{"lab_inspect", `{"host_id":"local","topo_yaml":"name: demo"}`},
+		{"measure_throughput", `{"host_id":"local"}`},
 	} {
 		if _, err := registry[tc.name](context.Background(), json.RawMessage(tc.raw)); err == nil {
 			t.Errorf("%s accepted arguments from another tool: %s", tc.name, tc.raw)
@@ -164,7 +165,7 @@ func TestRegistryRejectsForeignArguments(t *testing.T) {
 
 func TestMutatingTools(t *testing.T) {
 	for _, spec := range Specs() {
-		want := spec.Name == "lab_deploy" || spec.Name == "lab_destroy"
+		want := spec.Name == "lab_deploy" || spec.Name == "lab_destroy" || spec.Name == "measure_throughput"
 		if spec.Mutating != want {
 			t.Errorf("tool %q mutating=%t, want %t", spec.Name, spec.Mutating, want)
 		}
@@ -216,8 +217,8 @@ func TestDefinitions(t *testing.T) {
 
 func TestSpecs(t *testing.T) {
 	specs := Specs()
-	if len(specs) != 31 {
-		t.Fatalf("Specs() = %d, want 31", len(specs))
+	if len(specs) != 32 {
+		t.Fatalf("Specs() = %d, want 32", len(specs))
 	}
 	registry := Registry(&remote.Runner{})
 	for _, spec := range specs {
