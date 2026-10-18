@@ -73,16 +73,17 @@ On a Linux systemd host with Docker and containerlab already installed, run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Paramoshka/MiniSRE/main/scripts/install-lab-host.sh -o install-lab-host.sh
-sudo bash install-lab-host.sh --ssh-user YOUR_SSH_USER --mgmt-subnet 172.31.250.0/24
+sudo bash install-lab-host.sh --ssh-user mini-sre --mgmt-subnet 172.31.250.0/24
 ```
 
 Choose an unused private `/24`; the subnet above is an example. The script installs
 the release helper and restricted sudo rule, builds Alpine/FRR diagnostic images
 locally, and enables a system timer for TTL cleanup every minute. Omit the arguments
 to enter settings interactively. Repeat the command to update; existing config,
-sudoers and lab state are preserved. This requires a release containing the lab
-helper. See [containerlab setup](docs/containerlab.md) for dependencies and enabling
-the host in the bot.
+sudoers and lab state are preserved. The `mini-sre` account must already exist on
+that host; see [Prepare the SSH user](#prepare-the-ssh-user). This requires a
+release containing the lab helper. See [containerlab setup](docs/containerlab.md)
+for dependencies and enabling the host in the bot.
 
 ### Run from source
 
@@ -113,19 +114,98 @@ In interactive chat, `/usage` shows the last answer's token/cache statistics,
 
 ## Check SSH hosts
 
-Copy [hosts.example.yaml](hosts.example.yaml), edit the hosts and credentials,
-and provide a verified server key in `known_hosts`:
+### Prepare the SSH user
+
+MiniSRE connects to remote hosts as an unprivileged user and does not use
+`sudo`. Ask an administrator to create a dedicated `mini-sre` account on each
+host and authorize a key generated on the MiniSRE machine. The steps below use
+the OpenSSH client (`ssh`, `ssh-keygen` and `ssh-keyscan`).
+
+Generate the key and print its public part:
 
 ```bash
-cp hosts.example.yaml hosts.yaml
-chmod 600 hosts.yaml
-go run ./cmd -config hosts.yaml "show nginx errors on web-1"
+cd ~/mini-sre
+mkdir -p keys
+ssh-keygen -t ed25519 -f keys/mini-sre_ed25519 -N ''
+cat keys/mini-sre_ed25519.pub
+```
+
+Send the printed line to the administrator. On the remote host, from their own
+account, they run this block with `<PUBLIC_KEY>` replaced by that line:
+
+```bash
+sudo useradd --create-home --user-group --shell /bin/bash mini-sre
+sudo usermod -aG systemd-journal,docker mini-sre
+sudo install -d -m 700 -o mini-sre -g mini-sre /home/mini-sre/.ssh
+echo '<PUBLIC_KEY>' | sudo tee /home/mini-sre/.ssh/authorized_keys >/dev/null
+sudo chown mini-sre:mini-sre /home/mini-sre/.ssh/authorized_keys
+sudo chmod 600 /home/mini-sre/.ssh/authorized_keys
+```
+
+The account has no password and no `sudo` access. The `docker` group is
+effectively root-equivalent, and Docker must already be installed. If `mini-sre`
+already exists, skip the `useradd` command and rerun the rest.
+
+Add the host key. The administrator prints the host fingerprint:
+
+```bash
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+On the MiniSRE machine, fetch the key the host presents. Use the same address and
+port as in `hosts.yaml`; add `-p PORT` to the `ssh-keyscan` and `ssh` commands
+when the port is not 22:
+
+```bash
+ssh-keyscan -t ed25519 HOST > /tmp/mini-sre-hostkey
+ssh-keygen -lf /tmp/mini-sre-hostkey
+```
+
+Compare the SHA256 fingerprints. If they match, save the key and verify the
+connection:
+
+```bash
+cat /tmp/mini-sre-hostkey >> ~/mini-sre/known_hosts
+chmod 600 ~/mini-sre/known_hosts
+rm -f /tmp/mini-sre-hostkey
+ssh -i ~/mini-sre/keys/mini-sre_ed25519 \
+  -o UserKnownHostsFile="$HOME/mini-sre/known_hosts" \
+  -o IdentitiesOnly=yes \
+  -o BatchMode=yes \
+  mini-sre@HOST 'id -nG; systemctl --failed; docker ps >/dev/null && echo docker-ok'
+```
+
+Group changes apply to new SSH sessions. For a host reached through a jump host,
+run `ssh-keyscan` on the jump host for the target address and use `-J` for the
+check, or run the check from the jump host. Repeat this for every host and jump
+host. The host still needs the commands listed in
+[command dependencies](docs/tools.md#command-dependencies).
+
+### Configure hosts
+
+Edit `~/mini-sre/hosts.yaml`; paths are relative to that file:
+
+```yaml
+known_hosts: known_hosts
+hosts:
+  web-1:
+    address: 192.168.1.20
+    user: mini-sre
+    key_file: keys/mini-sre_ed25519
+```
+
+The bot reloads the file after saving. Test it with:
+
+```bash
+cd ~/mini-sre
+./mini-sre -config hosts.yaml "show nginx errors on web-1"
 ```
 
 `local` always means the machine running the agent. Other host IDs come from the
 YAML file. Hosts support a private key or password; unknown or changed SSH host
 keys are rejected. [SSH configuration](docs/configuration.md#hosts-and-ssh) explains
-credentials, paths and live config reloads.
+credentials, paths and live config reloads. A source checkout uses the same
+fields in the repository's `hosts.yaml` and runs the agent with `go run ./cmd`.
 
 ## Use Telegram
 

@@ -81,9 +81,12 @@ and [temperature guide](https://api-docs.deepseek.com/quick_start/parameter_sett
 ## Hosts and SSH
 
 Copy [hosts.example.yaml](../hosts.example.yaml) to `hosts.yaml` and replace the
-example hosts and credentials. `hosts.yaml` is ignored by Git. Keep the config and private keys
-readable only by their owner (`chmod 600 hosts.yaml keys/sre_ed25519`). If you use
-another config filename, keep that file outside Git too.
+example hosts and credentials. `hosts.yaml` is ignored by Git. Keep the config and
+private keys readable only by their owner
+(`chmod 600 hosts.yaml keys/mini-sre_ed25519`). If you use another config filename,
+keep that file outside Git too. See
+[Prepare the SSH user](../README.md#prepare-the-ssh-user) for creating the remote
+account and authorizing its key.
 
 ```bash
 go run ./cmd -config hosts.yaml "how much free space is in /var on web-1?"

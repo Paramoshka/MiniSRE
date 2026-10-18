@@ -5,22 +5,24 @@ known_hosts: known_hosts
 hosts:
   bastion-1:
     address: 203.0.113.10
-    user: sre
-    key_file: keys/sre_ed25519
+    user: mini-sre
+    key_file: keys/mini-sre_ed25519
 
   web-1:
     address: 192.168.1.20
     port: 22
-    user: sre
-    key_file: keys/sre_ed25519
+    user: mini-sre
+    key_file: keys/mini-sre_ed25519
     # Optional: reach this host through one other configured host.
     # The address above is resolved and opened by bastion-1.
     jump_host: bastion-1
 
   storage-1:
     address: 192.168.1.30
-    user: sre
-    password: "replace-me"
+    user: mini-sre
+    key_file: keys/mini-sre_ed25519
+    # Password authentication is also supported instead of key_file:
+    # password: "replace-me"
 
 telegram:
   allowed_user_ids: [123456789]

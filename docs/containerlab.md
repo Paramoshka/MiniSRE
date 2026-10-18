@@ -24,10 +24,12 @@ Download and inspect the script, then run it as root on the lab host:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Paramoshka/MiniSRE/main/scripts/install-lab-host.sh -o install-lab-host.sh
-sudo bash install-lab-host.sh --ssh-user YOUR_SSH_USER --mgmt-subnet 172.31.250.0/24
+sudo bash install-lab-host.sh --ssh-user mini-sre --mgmt-subnet 172.31.250.0/24
 ```
 
-Use the existing non-root SSH account configured for this host in the bot. Reserve
+Use the existing non-root SSH account configured for this host in the bot. The
+example above uses `mini-sre`; see [Prepare the SSH user](../README.md#prepare-the-ssh-user)
+to create it. Reserve
 an unused private IPv4 `/24` that does not overlap host addresses, VPN/non-default
 routes or Docker networks; deployment checks these overlaps. The example subnet
 is not automatically reserved. Without the arguments, missing settings are requested
