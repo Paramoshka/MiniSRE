@@ -145,7 +145,7 @@ func baseDefinitions() []Definition {
 		},
 		{
 			Name:        "get_disk_usage",
-			Description: "Get disk usage (total, used, available, percent used) for a filesystem path.",
+			Description: "Get filesystem space and inode usage (total, used, available, percent used) for a path. Inode exhaustion can prevent file creation despite free bytes. Unsupported inode statistics are reported as unavailable.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"path":{"type":"string","description":"Filesystem path to inspect; default /."}},"additionalProperties":false}`),
 			Run: standard(func(ctx context.Context, t *Tools, args toolArgs) (string, error) {
 				return t.DiskUsage(ctx, args.HostID, args.Path)
@@ -154,6 +154,8 @@ func baseDefinitions() []Definition {
 				return diskCommand(args.Path), nil
 			}),
 		},
+		directoryUsageDefinition(),
+		diskIODefinition(),
 		{
 			Name:        "get_top_processes",
 			Description: "Find resource consumers among visible processes sorted by memory (RSS), lifetime CPU, or a one-second interval CPU sample (cpu_interval), descending. cpu_interval uses procps-ng top with an isolated configuration, omits idle processes and does not read a personal toprc. Only the top rows are returned; use search_processes to find a process by name. Shows PID, user, CPU%, MEM%, RSS in KiB and executable name, without command-line arguments. CPU% is a lifetime average for cpu and an interval measurement for cpu_interval; it can exceed 100% on multiple cores. Defaults: host_id=local, sort_by=memory, limit=10.",
@@ -340,8 +342,8 @@ func baseDefinitions() []Definition {
 		},
 		{
 			Name:        "get_network_sockets",
-			Description: "Show TCP/UDP sockets with numeric endpoints and process details visible to the executing user. Defaults: host_id=local, protocol=both, state=listening, family=all. Filter by port on either endpoint. TCP connection states require protocol=tcp. Read-only; never closes sockets.",
-			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["all","ipv4","ipv6"]},"protocol":{"type":"string","enum":["both","tcp","udp"]},"state":{"type":"string","enum":["listening","all","established","syn-sent","syn-recv","time-wait","close-wait"]},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"Optional local or peer port."}},"additionalProperties":false}`),
+			Description: "Show TCP/UDP sockets with numeric endpoints and process details visible to the executing user. Defaults: host_id=local, protocol=both, state=listening, family=all, tcp_info=false. Filter by port on either endpoint. TCP connection states and tcp_info require protocol=tcp. tcp_info adds a snapshot of available internal TCP information (RTT/RTT variation in milliseconds, retransmissions, congestion window); fields vary by kernel. Counters may cover the connection lifetime, not a recent interval. Use state=established for active connections; no matching connections means no transfer evidence, not a healthy network. Read-only; never closes sockets.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"family":{"type":"string","enum":["all","ipv4","ipv6"]},"protocol":{"type":"string","enum":["both","tcp","udp"]},"state":{"type":"string","enum":["listening","all","established","syn-sent","syn-recv","time-wait","close-wait"]},"port":{"type":"integer","minimum":1,"maximum":65535,"description":"Optional local or peer port."},"tcp_info":{"type":"boolean","description":"Include internal TCP information; requires protocol=tcp. Default false."}},"additionalProperties":false}`),
 			Run: standard(func(ctx context.Context, t *Tools, args toolArgs) (string, error) {
 				return t.NetworkSockets(ctx, args)
 			}),
@@ -362,6 +364,7 @@ func baseDefinitions() []Definition {
 				return remote.Stage{Commands: commands}, nil
 			}),
 		},
+		networkActivityDefinition(),
 		{
 			Name:        "get_ip_neighbors",
 			Description: "Show neighbor cache entries and their states using ip neigh show. IPv4 shows ARP neighbors; IPv6 shows NDP neighbors. Defaults: host_id=local, family=ipv4, all interfaces. Optional interface filter. An empty cache alone does not prove a connectivity problem. Read-only.",

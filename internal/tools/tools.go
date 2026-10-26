@@ -86,6 +86,7 @@ type toolArgs struct {
 	OutputInterface string  `json:"output_interface"`
 	Count           *int    `json:"count"`
 	Protocol        string  `json:"protocol"`
+	TCPInfo         bool    `json:"tcp_info"`
 	State           string  `json:"state"`
 	Port            *int    `json:"port"`
 

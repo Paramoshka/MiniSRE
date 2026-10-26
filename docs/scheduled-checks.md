@@ -41,6 +41,13 @@ interval measurements. Provide explicit criteria in the task text when exact
 thresholds matter; otherwise the model uses its judgement and reports make
 that limitation clear.
 
+Disk inode/I/O checks and passive network activity checks are available here too.
+Directory-size scans should only be used to investigate space exhaustion on a
+specific directory; their 15-second bound does not eliminate traversal load.
+Incomplete directory scans or network comparisons return errors with any useful
+partial observations. They cannot produce an `ok` check, even if another probe
+succeeded and the model proposes a healthy verdict.
+
 On enabled lab hosts, scheduled checks can use `lab_inspect` and `lab_run`.
 `lab_deploy` and `lab_destroy` are removed from scheduled tool schemas and
 blocked at execution. `measure_throughput` is excluded globally for the same

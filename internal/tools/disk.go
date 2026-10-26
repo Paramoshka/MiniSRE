@@ -15,7 +15,7 @@ func diskCommand(path string) remote.Command {
 		path = "/"
 	}
 
-	return remote.Command{Program: "df", Args: []string{"-B1", "--output=size,used,avail", "--", path}}
+	return remote.Command{Program: "df", Args: []string{"-B1", "--output=size,used,avail,itotal,iused,iavail", "--", path}}
 }
 
 func (t *Tools) DiskUsage(ctx context.Context, hostID, path string) (string, error) {
@@ -32,11 +32,11 @@ func (t *Tools) DiskUsage(ctx context.Context, hostID, path string) (string, err
 		return "", errors.New("tools: unexpected df output")
 	}
 	fields := strings.Fields(rows[1])
-	if len(fields) != 3 {
+	if len(fields) != 6 {
 		return "", errors.New("tools: unexpected df columns")
 	}
 	var values [3]uint64
-	for i, field := range fields {
+	for i, field := range fields[:3] {
 		values[i], err = strconv.ParseUint(field, 10, 64)
 		if err != nil {
 			return "", errors.New("tools: invalid disk usage numbers")
@@ -51,8 +51,25 @@ func (t *Tools) DiskUsage(ctx context.Context, hostID, path string) (string, err
 	if path == "" {
 		path = "/"
 	}
-	return fmt.Sprintf("%s: total=%s used=%s available=%s use=%.1f%%",
-		path, humanBytes(total), humanBytes(used), humanBytes(available), usedPercent), nil
+	out := fmt.Sprintf("%s: total=%s used=%s available=%s use=%.1f%%",
+		path, humanBytes(total), humanBytes(used), humanBytes(available), usedPercent)
+	var inodes [3]uint64
+	availableInodes := true
+	for i, field := range fields[3:] {
+		if field == "-" {
+			availableInodes = false
+			continue
+		}
+		inodes[i], err = strconv.ParseUint(field, 10, 64)
+		if err != nil {
+			return "", errors.New("tools: invalid inode usage numbers")
+		}
+	}
+	if !availableInodes || inodes[0] == 0 {
+		return out + "\ninodes: unavailable on this filesystem", nil
+	}
+	return out + fmt.Sprintf("\ninodes: total=%d used=%d available=%d use=%.1f%%",
+		inodes[0], inodes[1], inodes[2], float64(inodes[1])/float64(inodes[0])*100), nil
 }
 
 func humanBytes(n uint64) string {

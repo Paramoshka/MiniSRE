@@ -221,11 +221,17 @@ func (t *Tools) PingHost(ctx context.Context, args toolArgs) (string, error) {
 }
 
 func socketsCommand(args toolArgs) (remote.Command, error) {
+	if args.TCPInfo && args.Protocol != "tcp" {
+		return remote.Command{}, errors.New("tools: tcp_info requires protocol=tcp")
+	}
 	family, err := networkFamily(args.Family, true)
 	if err != nil {
 		return remote.Command{}, err
 	}
 	flags := []string{"-n", "-p"}
+	if args.TCPInfo {
+		flags = append(flags, "-i")
+	}
 	switch args.Protocol {
 	case "", "both":
 		flags = append(flags, "-t", "-u")

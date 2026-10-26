@@ -8,6 +8,7 @@ agent in natural language; the tool names below describe the API it uses.
 - [Command dependencies](#command-dependencies)
 - [Tool reference](#tool-reference)
 - [Services and logs](#services-and-logs), [processes](#processes), [memory and pressure](#memory-and-pressure), [files](#files)
+- [Disk space and I/O](#disk-space-and-io)
 - [Network](#network-diagnostics), [Throughput](#throughput-tests), [DNS](#dns), [HTTP](#http-checks-and-downloads), [TLS certificates](#tls-certificates)
 - [Pipelines and saved output](#pipelines-and-output-files)
 - [Execution limits and data access](#execution-limits-and-data-access)
@@ -17,6 +18,9 @@ agent in natural language; the tool names below describe the API it uses.
 Commands are needed on the host where a probe runs, locally or over SSH.
 
 Base probes require Linux with `/proc/loadavg` and GNU `cat` and `df`.
+`get_disk_io` additionally needs `env` and sysstat `iostat` supporting
+`-d -x -k -y`. `get_directory_usage` needs GNU `du`, `timeout`, `readlink`
+and `stat`. Missing commands are reported; the bot does not install packages.
 
 Systemd probes need `systemctl` and `journalctl`; Docker probes need the Docker
 CLI and access to its daemon. These commands must be available in the SSH user's
@@ -37,6 +41,9 @@ File probes require GNU `sed` (with `--sandbox`), `grep`, `tail`, `readlink` and
 user's noninteractive PATH.
 
 Network probes require `ip` and `ss` from iproute2, and `ping` from iputils.
+`tcp_info=true` requires `ss -i`. `get_network_activity` needs `ip -j -s link`
+JSON statistics (`stats64` or `stats`), readable `/proc/uptime`, Bash, `sleep`
+and GNU `timeout`.
 They must also be available in the SSH user's noninteractive PATH. ICMP socket
 permissions depend on the host's ping configuration; failures are reported
 without attempting to elevate privileges. `check_tcp_port` also requires Bash and
@@ -70,7 +77,9 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `get_load_average` | none | load for 1, 5, 15 minutes and process counts |
 | `get_vmstat` | none | three samples at one-second intervals: CPU, runnable/blocked processes, memory, swap and block I/O; excludes the since-boot report |
 | `get_memory` | none | memory, swap, PSI stall averages and OOM/reclaim counters from `/proc`; unavailable sources are reported as limitations |
-| `get_disk_usage` | `path`, default `/` | total, used, available bytes formatted as human-readable sizes |
+| `get_disk_usage` | `path`, default `/` | total, used, available bytes and inode counts, with usage percentages; unsupported inode statistics are unavailable |
+| `get_directory_usage` | required `path`; `limit=10` (1..50) | allocated bytes in the directory and its largest immediate subdirectories; bounded recursive scan on one filesystem |
+| `get_disk_io` | none | three one-second per-device samples of read/write rates, latency, queue length and utilization |
 | `get_top_processes` | `sort_by`, default `memory`; `limit`, default `10` | descending ranking by RSS, lifetime-average CPU, or one-second interval CPU (`cpu_interval` via `top`), with PID, user, CPU%, MEM%, RSS in KiB and process name |
 | `search_processes` | required `pattern`; `limit=100` | case-insensitive literal name search across all visible processes, returning PID and name |
 | `get_service_status` | required `service`; `backend`, default `systemd`; `scope`, default `system` | systemd unit state or Docker container `.State` |
@@ -87,8 +96,9 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `check_tcp_port` | required `destination`, `port` | one bounded TCP connection from the selected host; reports success or the connection error |
 | `measure_throughput` | required `server_host_id`, `client_host_id`, `destination`, `bind_address`; `port=5201`, `duration=10` | temporary one-off iperf3 server and one TCP upload; summary bitrate, bytes and retransmits; active, mutating and not schedulable |
 | `check_tls_certificate` | required `destination`; `port=443`, optional `server_name` | certificate subject, issuer, validity, SANs, key, protocol/cipher and verification result |
-| `get_network_sockets` | `protocol=both`, `state=listening`, `family=all`, optional `port` | TCP/UDP sockets with numeric endpoints and visible process details |
+| `get_network_sockets` | `protocol=both`, `state=listening`, `family=all`, optional `port`, `tcp_info=false` | TCP/UDP sockets; optional internal TCP information requires `protocol=tcp` |
 | `get_network_interfaces` | `family=all`, optional `interface` | IP addresses, link state, MTU and RX/TX counters |
+| `get_network_activity` | optional `interface` | RX/TX bytes/s and interval changes in packet, error and drop counters; no test traffic |
 | `get_ip_neighbors` | `family=ipv4`, optional `interface` | ARP or NDP neighbor cache entries and states |
 | `dig_dns` | required `query`; optional `record_type`, `server`, `port` | bounded DNS query with full dig output and DNS status |
 | `nslookup_dns` | required `query`; optional `record_type`, `server`, `port` | bounded noninteractive DNS query with nslookup |
@@ -148,6 +158,41 @@ value with `boot=previous`. `output=cat` omits timestamps, host and unit metadat
 and leaves only messages; use it as a pipeline source before `count` when
 repeated log lines would otherwise differ by timestamp. `priority`, `boot` and
 `output` are rejected for Docker logs.
+
+## Disk space and I/O
+
+`get_disk_usage` checks both bytes and inodes using GNU `df`. Exhausted inodes
+can prevent file creation even when bytes remain available. Unsupported or
+zero-total inode statistics are shown as unavailable, not healthy. Its pipeline
+source now includes `itotal`, `iused` and `iavail` after the existing byte columns.
+
+`get_directory_usage` requires a specific absolute directory path. The root
+undergoes the same canonical-path checks as `list_directory`. GNU `du` scans
+recursively, prints a directory total (including immediate files) and immediate
+subdirectory totals, and the tool returns the largest `limit=1..50` subdirectories.
+Sizes measure allocated bytes, not apparent file lengths. It stays on one
+filesystem, excludes hidden entries at every level, and does not follow nested
+symlinks. Its output depth does not limit traversal work: use it only when
+investigating space exhaustion. Exclusions, permissions and filesystem accounting
+can explain differences from `df`.
+
+An independent remote `timeout` limits the scan to 15 seconds, with a one-second
+kill grace and an 18-second executor budget. Unfinished, malformed or truncated
+output and command failures return an error containing any complete records
+already observed, explicitly marked incomplete. Such observations are not a
+complete ranking or total, and cannot support an `ok` scheduled result.
+
+`get_disk_io` runs `env S_COLORS=never iostat -d -x -k -y 1 3`: three interval
+samples, without the since-boot report or ANSI colors. Rates are KiB/s; `await`
+or `r_await`/`w_await` are milliseconds including queue time; `aqu-sz` (older
+`avgqu-sz`) is average queue length. `%util` measures busy time; it does not by
+itself establish saturation of SSDs or RAID. Correlate with `vmstat`, PSI and
+the reported symptom. Do not add stacked-device counters as independent disks.
+Missing commands, unsupported columns, incomplete samples and truncated output
+are errors. A short healthy sample does not rule out an intermittent incident.
+
+These two new tools are available in chat and scheduled checks, but are not
+pipeline sources. They do not change host configuration or generate load tests.
 
 ## Processes
 
@@ -306,6 +351,27 @@ Socket queries accept `protocol=tcp`, `udp` or `both`. States are `listening`
 connection states require `protocol=tcp`. `port=1..65535` matches either endpoint.
 Process details depend on user permissions. Interface counters are cumulative,
 not rates, and an empty neighbor cache alone is not proof of a network failure.
+
+`get_network_sockets` with `tcp_info=true` adds `ss -i` and requires
+`protocol=tcp`. Use `state=established` and a known port for ongoing transfers.
+RTT and its variation are milliseconds; retransmissions, congestion windows and
+other fields depend on the kernel and iproute2 version. This is a snapshot:
+counters may cover the connection lifetime, not the current incident. No matching
+connections means no transfer evidence, not a healthy network. The option also
+works in pipelines, which retain raw `ss` output.
+
+`get_network_activity` takes two JSON link snapshots in one bounded SSH/local
+command, separated by a one-second sleep. It uses probe-host uptime timestamps
+for the actual interval, so SSH reconnection time is not counted as sampling
+time. It reports RX/TX bytes/s and changes in packets, errors and drops. An
+optional interface name limits both snapshots. Interfaces are matched by index
+and name; missing statistics, changed interfaces and decreasing counters make
+the comparison unavailable rather than producing zero or wrapped values.
+Malformed or truncated snapshots are errors. When only some interfaces can be
+compared, their observations are retained inside an explicitly incomplete error.
+No traffic or zero errors does not prove health; growing drops alone do not
+establish the cause of application latency. Sampling generates no test traffic,
+is available in scheduled checks, and is not a pipeline source.
 
 Example requests: "show routes from table 100 and the rules selecting it on
 web-1", "check the route to 192.0.2.5 from 192.0.2.1 with fwmark 42",
@@ -496,8 +562,11 @@ Interrupted jobs can leave private temporary files.
 
 ## Execution limits and data access
 
-Each diagnostic command has a 15-second timeout, including SSH connection and handshake.
-`measure_throughput` is the exception: its temporary server has a 35-second
+Most diagnostic commands have a 15-second timeout, including SSH connection and handshake.
+`get_directory_usage` bounds the scan to 15 seconds plus a one-second kill
+grace, within an 18-second caller limit. `get_network_activity` uses a
+seven-second watchdog, one-second kill grace and ten-second caller limit.
+`measure_throughput` has longer limits: its temporary server has a 35-second
 watchdog and a 40-second caller limit, and its client has a duration+10-second
 caller limit. Each tool call also has a 50-second overall limit, or 130 seconds
 for lab tools; its returned text is capped at 128 KiB with a truncation marker.

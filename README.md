@@ -11,10 +11,12 @@ and explains what it found.
 - Load, disk space and processes using the most memory or CPU, including a one-second interval CPU sample.
 - Current CPU, memory, swap and I/O activity with a short vmstat sample.
 - Memory, swap, PSI pressure stalls and OOM/reclaim counters.
+- Filesystem space and inode usage, largest subdirectories, and short per-device I/O latency/queue samples.
 - Systemd services, failed units, Docker containers and their recent logs.
 - Kernel and journal errors by severity, including the previous boot.
 - Config files and directories: selected lines, matching text, or directory contents with types, sizes and symlink targets.
 - Network interfaces, routes, policy rules, neighbors, sockets, ping, TCP port and TLS certificate checks.
+- TCP RTT/retransmission snapshots and interval interface traffic/error/drop counters without generating test traffic.
 - TCP throughput between configured hosts with iperf3, using a temporary one-off server; active and not schedulable.
 - DNS with dig/nslookup; HTTP with curl, including bounded downloads.
 - Filter and count diagnostic output, invert matches, and save results in a private directory under `/tmp`.
@@ -242,7 +244,8 @@ operations use a separately installed, restricted `mini-sre-lab` helper through
 `sudo`, with host-side TTL cleanup. See [containerlab setup](docs/containerlab.md).
 The agent has a fixed toolset; it cannot execute arbitrary shell commands. Downloads and
 saved output write under `/tmp`, with a 10 MiB limit per file. Diagnostic commands
-have a 15-second timeout and bounded output.
+normally have a 15-second timeout and bounded output; see the per-tool limits
+in [Diagnostic tools](docs/tools.md#execution-limits-and-data-access).
 
 Logs and config files can contain secrets and are sent to the model. Configured
 SSH passwords and known runtime credentials (Telegram, DeepSeek and proxies) are

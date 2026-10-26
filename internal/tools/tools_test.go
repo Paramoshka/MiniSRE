@@ -217,10 +217,10 @@ func TestDefinitions(t *testing.T) {
 
 func TestSpecs(t *testing.T) {
 	specs := Specs()
-	if len(specs) != 32 {
-		t.Fatalf("Specs() = %d, want 32", len(specs))
-	}
 	registry := Registry(&remote.Runner{})
+	if len(specs) == 0 || len(specs) != len(registry) {
+		t.Fatalf("specs/registry sizes differ or are empty: %d/%d", len(specs), len(registry))
+	}
 	for _, spec := range specs {
 		if _, ok := registry[spec.Name]; !ok {
 			t.Errorf("spec %q has no registry entry", spec.Name)

@@ -16,6 +16,7 @@ import (
 	"mini-sre/internal/agent"
 	"mini-sre/internal/config"
 	"mini-sre/internal/session"
+	"mini-sre/internal/tools"
 )
 
 func TestAgentUsesPipelineAndCurl(t *testing.T) {
@@ -122,8 +123,23 @@ func TestConfiguredAgentUsesProbesWithoutExposingCredentials(t *testing.T) {
 					Function struct{ Name string } `json:"function"`
 				} `json:"tools"`
 			}
-			if err := json.Unmarshal(body, &req); err != nil || len(req.Tools) != 32 {
+			if err := json.Unmarshal(body, &req); err != nil {
 				t.Errorf("tool definitions missing: %v, %d", err, len(req.Tools))
+			}
+			names := make(map[string]bool)
+			for _, tool := range req.Tools {
+				if names[tool.Function.Name] {
+					t.Errorf("duplicate model tool %q", tool.Function.Name)
+				}
+				names[tool.Function.Name] = true
+			}
+			if len(names) != len(tools.Specs()) {
+				t.Errorf("model tool set differs from declared specs")
+			}
+			for _, spec := range tools.Specs() {
+				if !names[spec.Name] {
+					t.Errorf("declared tool %q missing from model request", spec.Name)
+				}
 			}
 			hasVMStat := false
 			for _, tool := range req.Tools {
