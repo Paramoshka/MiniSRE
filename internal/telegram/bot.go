@@ -20,8 +20,6 @@ import (
 	"mini-sre/internal/session"
 )
 
-const maxHistoryTurns = 20
-
 type Bot struct {
 	token         string
 	users         func() []int64
@@ -41,6 +39,11 @@ type Bot struct {
 type update struct {
 	ID      int64    `json:"update_id"`
 	Message *message `json:"message"`
+}
+
+type handledUpdate struct {
+	text         string
+	clearHistory bool
 }
 
 type message struct {
@@ -181,7 +184,7 @@ func (b *Bot) Run(ctx context.Context) (runErr error) {
 
 func (b *Bot) process(ctx context.Context, u update) error {
 	var progressID int64
-	text, err := b.handle(ctx, u.Message, u.ID, func() {
+	reply, err := b.handle(ctx, u.Message, u.ID, func() {
 		progressCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		var sent struct {
@@ -204,7 +207,12 @@ func (b *Bot) process(ctx context.Context, u update) error {
 	}
 	nextOffset, savedAt := u.ID+1, time.Now().UTC()
 	started := time.Now()
-	err = b.saveState(nextOffset, savedAt)
+	if reply.clearHistory {
+		err = b.clearHistory(u.Message.Chat.ID, nextOffset, savedAt)
+	} else {
+		err = b.saveState(nextOffset, savedAt)
+	}
+	text := reply.text
 	if text != "" {
 		b.log(fmt.Errorf("telegram: update=%d stage=state duration=%s failed=%t", u.ID, time.Since(started), err != nil))
 	}
@@ -222,35 +230,40 @@ func (b *Bot) process(ctx context.Context, u update) error {
 	return err
 }
 
-func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart func()) (string, error) {
+func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart func()) (handledUpdate, error) {
 	if m == nil || m.From == nil || m.Chat.Type != "private" || !slices.Contains(b.users(), m.From.ID) || strings.TrimSpace(m.Text) == "" {
-		return "", nil
+		return handledUpdate{}, nil
 	}
 	input := strings.TrimSpace(m.Text)
 	language := b.currentLanguage()
 	if input == "/task" || strings.HasPrefix(input, "/task ") || strings.HasPrefix(input, "/task\n") || strings.HasPrefix(input, "/task\t") {
 		if b.tasks == nil {
-			return localized(language, "Плановые задачи не включены для этого процесса.", "Scheduled tasks are not enabled for this process."), nil
+			return handledUpdate{text: localized(language, "Плановые задачи не включены для этого процесса.", "Scheduled tasks are not enabled for this process.")}, nil
 		}
-		return b.tasks.command(ctx, m, updateID, input)
+		text, err := b.tasks.command(ctx, m, updateID, input)
+		return handledUpdate{text: text}, err
 	}
 	switch input {
 	case "/start":
-		return "Send a request or forward a problem report. Specify the host and service; local is the agent machine. /clear resets history. /task manages scheduled tasks.", nil
+		return handledUpdate{text: "Send a request or forward a problem report. Specify the host and service; local is the agent machine. /clear resets history. /task manages scheduled tasks."}, nil
 	case "/clear":
-		if s := b.sessions[m.Chat.ID]; s != nil {
-			s.Reset()
+		text := localized(language,
+			"Контекст сброшен. Рекомендуется вручную очистить переписку Telegram, чтобы не путать старые сообщения с новым разговором.",
+			"Context cleared. Please manually clear the Telegram chat history to avoid confusing old messages with the new conversation.")
+		if b.statePath != "" {
+			text += localized(language,
+				" Предыдущее состояние всех чатов сохранено в единственной резервной копии .bak до следующего /clear.",
+				" The previous state of all chats is saved in a single .bak backup until the next /clear.")
 		}
-		return "History cleared.", nil
+		return handledUpdate{text: text, clearHistory: true}, nil
 	}
 	if strings.HasPrefix(input, "/") {
-		return localized(language, "Неизвестная команда. /start — справка, /clear — очистить историю.", "Unknown command. /start — help, /clear — reset history."), nil
+		return handledUpdate{text: localized(language, "Неизвестная команда. /start — справка, /clear — очистить историю.", "Unknown command. /start — help, /clear — reset history.")}, nil
 	}
 	onStart()
 	s := b.sessions[m.Chat.ID]
 	if s == nil {
 		s = b.newSession()
-		s.MaxHistoryTurns = maxHistoryTurns
 		b.sessions[m.Chat.ID] = s
 	}
 	s.Language = language
@@ -290,26 +303,31 @@ func (b *Bot) handle(ctx context.Context, m *message, updateID int64, onStart fu
 	if err != nil {
 		b.log(err)
 		if ctx.Err() != nil {
-			return "", ctx.Err()
+			return handledUpdate{}, ctx.Err()
+		}
+		if errors.Is(err, agent.ErrContextLengthExceeded) {
+			return handledUpdate{text: localized(language,
+				"Контекст разговора превышает лимит модели. Предыдущая история сохранена без обрезания. Используйте /clear, чтобы начать новый разговор. Действия, выполненные до ошибки, могли сохраниться.",
+				"Context exceeds the model's limit. Previous history has been preserved without trimming. Use /clear to start a new conversation. Actions completed before the error may have persisted.")}, nil
 		}
 		var netErr net.Error
 		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
-			return localized(language,
+			return handledUpdate{text: localized(language,
 				"Модель не ответила за отведённое время. Действия, выполненные до ошибки, могли сохраниться. Подробности — в журнале агента.",
-				"The model did not respond within the allotted time. Actions completed before the error may have persisted. See the agent log for details."), nil
+				"The model did not respond within the allotted time. Actions completed before the error may have persisted. See the agent log for details.")}, nil
 		}
 		if errors.Is(err, session.ErrResponseFormat) {
-			return localized(language,
+			return handledUpdate{text: localized(language,
 				"Не удалось сформировать итог диагностики: модель повторно вернула некорректный ответ. Предыдущие проверки или действия могли выполниться; я не запускал их повторно для исправления ответа. Подробности — в журнале агента.",
-				"Could not produce the diagnostic summary: the model returned an invalid response again. Earlier checks or actions may have completed; they were not rerun to repair the response. See the agent log for details."), nil
+				"Could not produce the diagnostic summary: the model returned an invalid response again. Earlier checks or actions may have completed; they were not rerun to repair the response. See the agent log for details.")}, nil
 		}
-		return localized(language, "Не удалось выполнить запрос. Подробности — в журнале агента.", "Could not complete the request. See the agent log for details."), nil
+		return handledUpdate{text: localized(language, "Не удалось выполнить запрос. Подробности — в журнале агента.", "Could not complete the request. See the agent log for details.")}, nil
 	}
 	text := resp.Content
 	if strings.TrimSpace(text) == "" {
 		text = localized(language, "Модель вернула пустой ответ. Попробуйте уточнить запрос.", "The model returned an empty response. Try a more specific request.")
 	}
-	return text, nil
+	return handledUpdate{text: text}, nil
 }
 
 func (b *Bot) send(ctx context.Context, chatID int64, text string) error {

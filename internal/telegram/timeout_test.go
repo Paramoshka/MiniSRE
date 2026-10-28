@@ -97,7 +97,8 @@ func TestParentCancellationTakesPriorityOverModelTimeout(t *testing.T) {
 				}
 				return nil, fmt.Errorf("agent: chat: %w", context.DeadlineExceeded)
 			})
-			text, err := b.handle(ctx, privateMessage(t, 1, "check"), 1, func() {})
+			reply, err := b.handle(ctx, privateMessage(t, 1, "check"), 1, func() {})
+			text := reply.text
 			if text != "" || !errors.Is(err, ctx.Err()) || ctx.Err() == nil {
 				t.Fatalf("text = %q, error = %v, context error = %v", text, err, ctx.Err())
 			}

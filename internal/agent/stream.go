@@ -25,7 +25,7 @@ func (c *AgentClient) ChatStream(ctx context.Context, req Request) (*Stream, err
 
 	inner := c.client.Chat.Completions.NewStreaming(ctx, params, c.thinkingOption())
 	if err := inner.Err(); err != nil {
-		return nil, fmt.Errorf("agent: chat stream: %w", err)
+		return nil, fmt.Errorf("agent: chat stream: %w", classifyError(err))
 	}
 	return &Stream{stream: inner}, nil
 }
@@ -52,7 +52,7 @@ func (s *Stream) Chunks() iter.Seq2[Chunk, error] {
 			}
 		}
 		if err := s.stream.Err(); err != nil {
-			yield(Chunk{}, fmt.Errorf("agent: chat stream: %w", err))
+			yield(Chunk{}, fmt.Errorf("agent: chat stream: %w", classifyError(err)))
 		}
 	}
 }

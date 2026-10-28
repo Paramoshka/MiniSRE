@@ -59,7 +59,7 @@ func (c *AgentClient) Chat(ctx context.Context, req Request) (*Response, error) 
 
 	completion, err := c.client.Chat.Completions.New(ctx, params, c.thinkingOption())
 	if err != nil {
-		return nil, fmt.Errorf("agent: chat: %w", err)
+		return nil, fmt.Errorf("agent: chat: %w", classifyError(err))
 	}
 	if len(completion.Choices) == 0 {
 		return nil, errors.New("agent: chat: response has no choices")

@@ -202,8 +202,8 @@ func TestAccessAndChatHistory(t *testing.T) {
 	if len(histories) != 4 || len(histories[0]) != 2 || len(histories[1]) != 4 || len(histories[2]) != 2 || len(histories[3]) != 2 {
 		t.Fatalf("history crossed chats or reset failed: %+v", histories)
 	}
-	if histories[0][1].Content != "forwarded problem" || bot.sessions[1].MaxHistoryTurns != 20 {
-		t.Fatal("forwarded text or history limit incorrect")
+	if histories[0][1].Content != "forwarded problem" {
+		t.Fatal("forwarded text incorrect")
 	}
 	mu.Lock()
 	defer mu.Unlock()

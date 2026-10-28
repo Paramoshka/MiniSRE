@@ -54,13 +54,24 @@ stop startup without printing the URL or its credentials.
 The bot accepts text and forwarded text in personal chats from allowed users.
 Other senders, groups and non-text messages are ignored before calling the model.
 Use `/start` for help and `/clear` to reset the chat. Requests are processed
-sequentially; histories are separate per chat and retain the last 20 completed
-requests, including their tool calls, results and reasoning. Histories and the
+sequentially; histories are separate per chat and retain all completed requests
+until `/clear`, including their tool calls, results and reasoning. There is no
+automatic history trimming or summarization. Histories and the
 polling offset are persisted in `$XDG_STATE_HOME/mini-sre/telegram.json`, or
 `~/.local/state/mini-sre/telegram.json` when `XDG_STATE_HOME` is unset. Override
 the file with `-telegram-state PATH`; dedicate one state file to one bot process.
 The example user service uses this default without unit changes. CLI history
-remains in memory.
+remains in memory. Conversation size, memory use, state-file size and model input
+cost can grow until you clear the conversation. Context caching remains a
+provider optimization, not a guarantee of unlimited context or cache retention.
+
+Every model request sends the full retained context. If the provider rejects it
+with a recognized context-length error, the bot preserves the previous history,
+checkpoints the update offset and suggests `/clear`. It does not automatically
+retry with a shortened history or repeat tools. Tools executed before the error
+may already have taken effect; rolling back the failed turn does not undo them.
+Other model errors keep their normal handling, and `finish_reason=length` alone
+is not treated as context overflow: it can mean the generated answer was cut short.
 
 ## Persistence and restart behavior
 
@@ -71,8 +82,23 @@ not chmodded. The file contains conversation and diagnostic data. On startup,
 a missing file creates a fresh state; invalid JSON, an unsupported format,
 incomplete tool-call histories or filesystem errors stop
 the bot with an error in its journal. A write failure during polling also stops
-the bot. `/clear` removes the saved context before confirming, but does not
-delete visible Telegram messages. Restored chats use the current system prompt.
+the bot. Restored chats use the current system prompt.
+
+`/clear` first saves the previous full state in a single `telegram.json.bak`
+(or `PATH.bak` with `-telegram-state PATH`), replacing any previous backup. It then
+clears only the current chat in memory and the active JSON, preserving other
+chats and the polling offset. Both files are written using synced temporary
+files and atomic replacement; the active checkpoint is not renamed away while
+creating the backup. Backup or checkpoint failures stop the bot without sending
+a success confirmation. The backup contains all chats' conversation and diagnostic
+data and has mode `0600`; clearing context is not secure erasure. Scheduled tasks
+remain unchanged in their separate file.
+
+The confirmation recommends manually clearing the visible Telegram conversation
+to avoid confusing old messages with the new context. The bot does not delete
+Telegram messages or detect manual chat-history deletion. Message identifiers
+are not a count of remaining messages. A backup is never restored automatically,
+even if the active JSON is missing or invalid.
 
 Offsets expire after 24 hours without a processed update, matching Telegram's
 update retention; chat context is retained. Already lost context cannot be

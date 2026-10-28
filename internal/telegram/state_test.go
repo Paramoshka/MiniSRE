@@ -48,7 +48,7 @@ func readState(t *testing.T, path string) savedState {
 	return state
 }
 
-func TestStateRestoresBoundedToolHistoriesAndClear(t *testing.T) {
+func TestStateRestoresFullToolHistoriesAndClear(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "telegram.json")
 	var nextOffset atomic.Int64
 	var clear atomic.Bool
@@ -98,8 +98,8 @@ func TestStateRestoresBoundedToolHistoriesAndClear(t *testing.T) {
 	}
 	process(b, 2, "other chat")
 	state := readState(t, path)
-	if len(state.Chats[1]) != 100 || state.Chats[1][0].Content != "question 5" || len(state.Chats[2]) != 5 {
-		t.Fatal("did not retain 20 complete tool turns separately per chat")
+	if len(state.Chats[1]) != 125 || state.Chats[1][0].Content != "question 0" || len(state.Chats[2]) != 5 {
+		t.Fatal("did not retain all complete tool turns separately per chat")
 	}
 	for _, history := range state.Chats {
 		for _, m := range history {
@@ -125,8 +125,8 @@ func TestStateRestoresBoundedToolHistoriesAndClear(t *testing.T) {
 	}
 	process(restarted, 1, "after restart")
 	state = readState(t, path)
-	if state.Chats[1][0].Content != "question 6" || state.Chats[1][95].Content != "after restart" {
-		t.Fatal("continued history did not trim whole turns")
+	if state.Chats[1][0].Content != "question 0" || state.Chats[1][125].Content != "after restart" {
+		t.Fatal("continued history lost completed turns")
 	}
 	clear.Store(true)
 	process(restarted, 1, "/clear")

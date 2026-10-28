@@ -70,7 +70,6 @@ func (b *Bot) UseState(path string) error {
 			return &stateError{errors.New("invalid private chat ID")}
 		}
 		s := b.newSession()
-		s.MaxHistoryTurns = maxHistoryTurns
 		if err := s.Restore(history); err != nil {
 			return &stateError{fmt.Errorf("invalid history for chat %d: %w", chatID, err)}
 		}
@@ -105,6 +104,30 @@ func (b *Bot) saveState(offset int64, savedAt time.Time) error {
 	}
 	if err := writeState(b.statePath, data); err != nil {
 		return &stateError{err}
+	}
+	return nil
+}
+
+// clearHistory backs up the durable state before clearing just one chat. Copying
+// via writeState, rather than renaming the active file away, leaves a valid
+// checkpoint in place even if the process stops between the two writes.
+func (b *Bot) clearHistory(chatID, offset int64, savedAt time.Time) error {
+	if b.statePath != "" {
+		data, err := os.ReadFile(b.statePath)
+		if err != nil {
+			return &stateError{fmt.Errorf("read state for backup: %w", err)}
+		}
+		if err := writeState(b.statePath+".bak", data); err != nil {
+			return &stateError{fmt.Errorf("back up state: %w", err)}
+		}
+	}
+	previous := b.sessions[chatID]
+	delete(b.sessions, chatID)
+	if err := b.saveState(offset, savedAt); err != nil {
+		if previous != nil {
+			b.sessions[chatID] = previous
+		}
+		return err
 	}
 	return nil
 }

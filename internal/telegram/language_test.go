@@ -37,7 +37,8 @@ func TestErrorLanguageChangesBetweenRequests(t *testing.T) {
 			b.SetLanguage(func() string { return language })
 			for _, next := range []string{"ru", "en", "ru"} {
 				language = next
-				text, err := b.handle(context.Background(), privateMessage(t, 1, tc.input), 1, func() {})
+				reply, err := b.handle(context.Background(), privateMessage(t, 1, tc.input), 1, func() {})
+				text := reply.text
 				want := tc.ru
 				if next == "en" {
 					want = tc.en
@@ -60,7 +61,8 @@ func TestRequestKeepsLanguageDuringReload(t *testing.T) {
 		return nil, errors.New("model failed")
 	})
 	b.SetLanguage(func() string { return language })
-	text, err := b.handle(context.Background(), privateMessage(t, 1, "проверь"), 1, func() {})
+	reply, err := b.handle(context.Background(), privateMessage(t, 1, "проверь"), 1, func() {})
+	text := reply.text
 	if err != nil || !strings.Contains(text, "Could not complete the request") {
 		t.Fatalf("reload changed an in-flight reply's language: %q, %v", text, err)
 	}

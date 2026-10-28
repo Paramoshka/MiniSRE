@@ -227,7 +227,11 @@ go run ./cmd -config hosts.yaml -telegram
 ```
 
 The bot accepts personal text messages and forwarded text from allowed users.
-`/clear` resets its chat history. To schedule a check:
+The bot retains the full completed conversation until `/clear`. That command
+resets only the current chat's context and replaces a single `.bak` state backup;
+clear the visible Telegram history manually to avoid confusing old and new context.
+If the model's context limit is exceeded, the bot suggests `/clear` instead of
+silently forgetting earlier messages. To schedule a check:
 
 ```text
 /task add 5m 1h Check nginx on web-1; report a problem if the service is not active.
