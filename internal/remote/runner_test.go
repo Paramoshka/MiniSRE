@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -394,8 +395,18 @@ func serveSSH(conn net.Conn, cfg *ssh.ServerConfig, forward func(string, uint32)
 }
 
 type testSSHHost struct {
-	listener net.Listener
-	hostKey  ssh.Signer
+	listener    net.Listener
+	hostKey     ssh.Signer
+	connections atomic.Int32
+	active      atomic.Int32
+	conns       sync.Map
+}
+
+func (h *testSSHHost) closeConnections() {
+	h.conns.Range(func(key, _ any) bool {
+		_ = key.(net.Conn).Close()
+		return true
+	})
 }
 
 func startTestSSH(t *testing.T, hostKey, authKey ssh.Signer, password string, forward func(string, uint32) (string, bool)) *testSSHHost {
@@ -422,6 +433,7 @@ func startTestSSH(t *testing.T, hostKey, authKey ssh.Signer, password string, fo
 	if err != nil {
 		t.Fatal(err)
 	}
+	host := &testSSHHost{listener: listener, hostKey: hostKey}
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		for {
@@ -429,11 +441,18 @@ func startTestSSH(t *testing.T, hostKey, authKey ssh.Signer, password string, fo
 			if err != nil {
 				return
 			}
-			wg.Go(func() { serveSSH(conn, serverConfig, forward) })
+			host.connections.Add(1)
+			host.active.Add(1)
+			host.conns.Store(conn, struct{}{})
+			wg.Go(func() {
+				defer host.active.Add(-1)
+				defer host.conns.Delete(conn)
+				serveSSH(conn, serverConfig, forward)
+			})
 		}
 	})
 	t.Cleanup(func() { listener.Close(); wg.Wait() })
-	return &testSSHHost{listener: listener, hostKey: hostKey}
+	return host
 }
 
 func newTestSigner(t *testing.T) (ssh.Signer, ed25519.PrivateKey) {

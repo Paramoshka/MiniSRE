@@ -25,13 +25,16 @@ import (
 )
 
 const (
-	commandTimeout = 15 * time.Second
-	outputLimit    = 64 * 1024
-	maxJumpDepth   = 1
+	commandTimeout        = 15 * time.Second
+	sshSessionOpenTimeout = 5 * time.Second
+	outputLimit           = 64 * 1024
+	maxJumpDepth          = 1
 )
 
 type Runner struct {
 	Config config.Config
+	// Pool reuses idle SSH connections between commands. Nil disables reuse.
+	Pool *Pool
 }
 
 type Result struct {
@@ -137,28 +140,73 @@ func (r *Runner) runInput(ctx context.Context, hostID string, processGroup bool,
 	return result, nil
 }
 
-func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, input io.Reader, program string, args []string, stdout, stderr *limitedBuffer) error {
-	conn, err := r.dialSSH(ctx, id, 0)
-	if err != nil {
-		return err
+func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, input io.Reader, program string, args []string, stdout, stderr *limitedBuffer) (err error) {
+	key := ""
+	if r.Pool != nil {
+		if value, ok := connectionKey(r.Config, id); ok {
+			key = value
+		}
 	}
-	defer conn.Close()
-	session, err := conn.client.NewSession()
-	if err != nil {
+	var conn *sshClient
+	var session *ssh.Session
+	for attempt := 0; ; attempt++ {
+		var fromPool bool
+		conn, fromPool, err = r.acquireSSH(ctx, id, key, attempt > 0)
+		if err != nil {
+			return err
+		}
+		openCtx := ctx
+		var cancel context.CancelFunc
+		if fromPool {
+			openCtx, cancel = context.WithTimeout(ctx, sshSessionOpenTimeout)
+		}
+		session, err = newSSHSession(openCtx, conn)
+		if cancel != nil {
+			cancel()
+		}
+		if err == nil {
+			break
+		}
 		r.logSSH(id, "session", err)
-		return errors.New("cannot open SSH session")
+		conn.Close()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// A pooled connection may have been closed by the server while idle.
+		// Retry with a fresh connection only before a command has started.
+		if !fromPool || attempt >= 1 {
+			return errors.New("cannot open SSH session")
+		}
 	}
-	defer session.Close()
 	var signalSession atomic.Pointer[ssh.Session]
+	var aborted atomic.Bool
+	callbackDone := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
+		aborted.Store(true)
 		if session := signalSession.Load(); session != nil {
 			// Best effort; the independent remote watchdog handles lost connections.
 			_ = conn.transport.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
 			session.Signal(ssh.SIGTERM)
 		}
 		conn.transport.Close()
+		close(callbackDone)
 	})
-	defer stop()
+	reusable := false
+	defer func() {
+		if !stop() {
+			<-callbackDone
+		}
+		if reusable && !aborted.Load() && ctx.Err() == nil && r.Pool != nil && conn.poolKey != "" {
+			// Do not pool a connection when credentials or trust files changed
+			// while it was being established or used.
+			if current, ok := connectionKey(r.Config, id); ok && current == conn.poolKey {
+				r.Pool.put(conn.poolKey, id, conn)
+				return
+			}
+		}
+		conn.Close()
+	}()
+	defer session.Close()
 	if processGroup {
 		signalSession.Store(session)
 	}
@@ -168,20 +216,74 @@ func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, input
 	for _, arg := range args {
 		command += " " + shellQuote(arg)
 	}
-	return session.Run(command)
+	err = session.Run(command)
+	var exit *ssh.ExitError
+	reusable = err == nil || errors.As(err, &exit)
+	return err
+}
+
+// newSSHSession opens a session but keeps the connection under the command
+// context while waiting, so a dead idle connection cannot hang the probe.
+func newSSHSession(ctx context.Context, conn *sshClient) (*ssh.Session, error) {
+	var aborted atomic.Bool
+	done := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		aborted.Store(true)
+		_ = conn.transport.Close()
+		close(done)
+	})
+	session, err := conn.client.NewSession()
+	if !stop() {
+		<-done
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if session != nil {
+			session.Close()
+		}
+		return nil, ctxErr
+	}
+	if aborted.Load() {
+		if session != nil {
+			session.Close()
+		}
+		return nil, errors.New("SSH session canceled")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+// acquireSSH takes an idle connection for this exact host configuration, or
+// dials a new one. Pool keys include credentials, keys and known_hosts contents,
+// so a configuration change never reuses a connection checked under old trust.
+func (r *Runner) acquireSSH(ctx context.Context, id, key string, bypassPool bool) (*sshClient, bool, error) {
+	if r.Pool != nil && key != "" && !bypassPool {
+		if client := r.Pool.take(key); client != nil {
+			client.poolKey = key
+			return client, true, nil
+		}
+	}
+	client, err := r.dialSSH(ctx, id, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	if r.Pool != nil && key != "" {
+		client.poolKey = key
+	}
+	return client, false, nil
 }
 
 type sshClient struct {
 	client    *ssh.Client
 	transport net.Conn
 	parent    *sshClient
-	stop      func() bool
+	poolKey   string
 	closeOnce sync.Once
 }
 
 func (c *sshClient) Close() {
 	c.closeOnce.Do(func() {
-		c.stop()
 		_ = c.client.Close()
 		_ = c.transport.Close()
 		if c.parent != nil {
@@ -214,6 +316,7 @@ func (r *Runner) dialSSH(ctx context.Context, id string, depth int) (*sshClient,
 	address := net.JoinHostPort(host.Address, strconv.Itoa(port))
 	var parent *sshClient
 	var transport net.Conn
+	deadlineSet := false
 	if host.JumpHost != "" {
 		parent, err = r.dialSSH(ctx, host.JumpHost, depth+1)
 		if err != nil {
@@ -236,15 +339,24 @@ func (r *Runner) dialSSH(ctx context.Context, id string, depth int) (*sshClient,
 				_ = transport.Close()
 				return nil, errors.New("cannot set SSH deadline")
 			}
+			deadlineSet = true
 		}
 	}
-	stop := context.AfterFunc(ctx, func() { transport.Close() })
+	var handshakeAborted atomic.Bool
+	handshakeDone := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		handshakeAborted.Store(true)
+		_ = transport.Close()
+		close(handshakeDone)
+	})
 	clientConn, channels, requests, err := ssh.NewClientConn(transport, address, &ssh.ClientConfig{
 		User: host.User, Auth: []ssh.AuthMethod{auth}, HostKeyCallback: verify,
 		HostKeyAlgorithms: knownHostAlgorithms(verify, address, transport.RemoteAddr()),
 	})
+	if !stop() {
+		<-handshakeDone
+	}
 	if err != nil {
-		stop()
 		_ = transport.Close()
 		if parent != nil {
 			parent.Close()
@@ -259,8 +371,27 @@ func (r *Runner) dialSSH(ctx context.Context, id string, depth int) (*sshClient,
 		}
 		return nil, errors.New("SSH handshake or authentication failed")
 	}
+	if handshakeAborted.Load() || ctx.Err() != nil {
+		_ = transport.Close()
+		if parent != nil {
+			parent.Close()
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("SSH handshake canceled")
+	}
+	if deadlineSet {
+		if err := transport.SetDeadline(time.Time{}); err != nil {
+			_ = transport.Close()
+			if parent != nil {
+				parent.Close()
+			}
+			return nil, errors.New("cannot reset SSH deadline")
+		}
+	}
 	client := ssh.NewClient(clientConn, channels, requests)
-	return &sshClient{client: client, transport: transport, parent: parent, stop: stop}, nil
+	return &sshClient{client: client, transport: transport, parent: parent}, nil
 }
 
 func (r *Runner) sshAuth(id string, host config.Host) (ssh.AuthMethod, error) {

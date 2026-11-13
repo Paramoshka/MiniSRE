@@ -150,6 +150,15 @@ checks. YAML syntax, unknown fields, invalid ports and conflicting credentials
 are rejected at startup. Host IDs are exposed to the model; addresses, passwords,
 key paths and key contents are not included in the host listing or prompts.
 
+Idle SSH connections are reused for later commands while the host settings,
+credentials, key file contents and `known_hosts` contents stay unchanged. Idle
+connections stop being reused after 60 seconds and are closed shortly
+afterwards; shutdown closes them immediately. Up to two idle connections are
+kept per target host and 32 in total. A connection serves one command at a time,
+so concurrent commands open separate connections. A jump-host chain is reused as
+one connection. A canceled or failed transport is discarded, and a command is
+never replayed after it has started.
+
 SSH connection failures are logged to stderr with the host ID, connection stage,
 and underlying error. Configured passwords are redacted. For the user service,
 read these diagnostics with `journalctl --user -u mini-sre.service -n 50`.

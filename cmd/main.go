@@ -81,6 +81,8 @@ func run() (err error) {
 	if err != nil {
 		return err
 	}
+	pool := remote.NewPool()
+	defer pool.Close()
 
 	client, err := agent.New(cfg)
 	if err != nil {
@@ -92,7 +94,7 @@ func run() (err error) {
 			return hostConfig.Current().Telegram.AllowedUserIDs
 		},
 			func() *session.Session {
-				return &session.Session{Turn: client.Chat, Tools: toolSpecs(), RunTool: toolRunner(hostConfig.Current)}
+				return &session.Session{Turn: client.Chat, Tools: toolSpecs(), RunTool: toolRunner(hostConfig.Current, pool)}
 			}, os.Stderr)
 		if err != nil {
 			return err
@@ -128,7 +130,7 @@ func run() (err error) {
 		Stream:       *stream,
 		Reasoning:    *reasoning,
 		Tools:        toolSpecs(),
-		RunTool:      toolRunner(hostConfig.Current),
+		RunTool:      toolRunner(hostConfig.Current, pool),
 	}
 
 	if args := flag.Args(); len(args) > 0 {
@@ -194,10 +196,10 @@ func toolSpecs() []agent.Tool {
 	return out
 }
 
-func toolRunner(current func() config.Config) func(ctx context.Context, call agent.ToolCall) (string, error) {
+func toolRunner(current func() config.Config, pool *remote.Pool) func(ctx context.Context, call agent.ToolCall) (string, error) {
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
 		// The connection and redaction must use the same configuration snapshot.
-		registry := tools.Registry(&remote.Runner{Config: current()})
+		registry := tools.Registry(&remote.Runner{Config: current(), Pool: pool})
 		run, ok := registry[call.Name]
 		if !ok {
 			return "", fmt.Errorf("unknown tool %q", call.Name)

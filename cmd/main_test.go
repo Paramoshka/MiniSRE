@@ -39,7 +39,7 @@ func TestAgentUsesPipelineAndCurl(t *testing.T) {
 	cfg := config.Config{Hosts: map[string]config.Host{"web": {Password: "agent-secret"}}}
 	calls := 0
 	s := &session.Session{
-		Tools: toolSpecs(), RunTool: toolRunner(func() config.Config { return cfg }),
+		Tools: toolSpecs(), RunTool: toolRunner(func() config.Config { return cfg }, nil),
 		Turn: func(_ context.Context, req agent.Request) (*agent.Response, error) {
 			calls++
 			if calls == 1 {
@@ -182,7 +182,7 @@ func TestConfiguredAgentUsesProbesWithoutExposingCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &session.Session{Turn: client.Chat, Tools: toolSpecs(), RunTool: toolRunner(func() config.Config { return cfg })}
+	s := &session.Session{Turn: client.Chat, Tools: toolSpecs(), RunTool: toolRunner(func() config.Config { return cfg }, nil)}
 	resp, err := s.Ask(context.Background(), "Check local")
 	if err != nil || resp.Content != "Checked" || requests.Load() != 2 {
 		t.Fatalf("agent/tools flow: response=%+v err=%v requests=%d", resp, err, requests.Load())
@@ -200,7 +200,7 @@ func TestToolRunnerPinsConfigForRedaction(t *testing.T) {
 		snapshot := cfg
 		cfg = config.Config{Hosts: map[string]config.Host{"new": {Password: "new-secret"}}}
 		return snapshot
-	})
+	}, nil)
 	out, err := run(context.Background(), agent.ToolCall{Name: "get_service_logs", Arguments: "{}"})
 	if err != nil || strings.Contains(out, "old-secret") || !strings.Contains(out, "[redacted]") {
 		t.Fatalf("tool did not redact with its original snapshot: %q, %v", out, err)
@@ -227,7 +227,7 @@ func TestAgentUsesFileTools(t *testing.T) {
 	cfg := config.Config{Hosts: map[string]config.Host{"web": {Password: "file-secret"}}}
 	calls := 0
 	s := &session.Session{
-		Tools: toolSpecs(), RunTool: toolRunner(func() config.Config { return cfg }),
+		Tools: toolSpecs(), RunTool: toolRunner(func() config.Config { return cfg }, nil),
 		Turn: func(_ context.Context, req agent.Request) (*agent.Response, error) {
 			calls++
 			if calls == 1 {
