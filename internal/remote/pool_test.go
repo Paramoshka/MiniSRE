@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -55,6 +56,81 @@ func TestPoolReusesSequentialSSHConnection(t *testing.T) {
 	}
 	if got := setup.server.connections.Load(); got != 1 {
 		t.Fatalf("sequential commands opened %d SSH connections, want 1", got)
+	}
+}
+
+func TestPoolJumpSessionCancellationWithUnresponsiveBastion(t *testing.T) {
+	setup := testSSHJump(t, false)
+	setup.runner.Pool = newPool(time.Minute)
+	t.Cleanup(setup.runner.Pool.Close)
+	t.Cleanup(setup.target.closeConnections)
+	t.Cleanup(setup.bastion.closeConnections)
+	if _, err := setup.runner.Run(context.Background(), "web", "true"); err != nil {
+		t.Fatal(err)
+	}
+	// Keep TCP open but suppress replies, including the channel-close reply.
+	setup.bastion.dropWrites.Store(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := setup.runner.Run(ctx, "web", "true")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected deadline exceeded, got %v", err)
+		}
+	case <-time.After(time.Second):
+		setup.bastion.closeConnections()
+		<-done
+		t.Fatal("SSH session opening did not stop after cancellation")
+	}
+}
+
+type cancelSSHInput struct {
+	onRead func()
+}
+
+func (r cancelSSHInput) Read([]byte) (int, error) {
+	r.onRead()
+	return 0, io.EOF
+}
+
+func TestSSHJumpRunningCommandCancellationWithUnresponsiveBastion(t *testing.T) {
+	for _, processGroup := range []bool{false, true} {
+		name := "normal"
+		if processGroup {
+			name = "bounded"
+		}
+		t.Run(name, func(t *testing.T) {
+			setup := testSSHJump(t, false)
+			t.Cleanup(setup.target.closeConnections)
+			t.Cleanup(setup.bastion.closeConnections)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			// Stdin is copied only after exec has been accepted by the server.
+			input := cancelSSHInput{onRead: func() {
+				setup.bastion.dropWrites.Store(true)
+				cancel()
+			}}
+			done := make(chan error, 1)
+			go func() {
+				_, err := setup.runner.runInput(ctx, "web", processGroup, time.Second, input, "cat")
+				done <- err
+			}()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("expected cancellation, got %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				setup.bastion.closeConnections()
+				<-done
+				t.Fatal("running SSH command did not stop after cancellation")
+			}
+		})
 	}
 }
 

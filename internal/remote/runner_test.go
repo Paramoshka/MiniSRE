@@ -400,6 +400,19 @@ type testSSHHost struct {
 	connections atomic.Int32
 	active      atomic.Int32
 	conns       sync.Map
+	dropWrites  atomic.Bool
+}
+
+type testSSHConn struct {
+	net.Conn
+	dropWrites *atomic.Bool
+}
+
+func (c *testSSHConn) Write(p []byte) (int, error) {
+	if c.dropWrites.Load() {
+		return len(p), nil
+	}
+	return c.Conn.Write(p)
 }
 
 func (h *testSSHHost) closeConnections() {
@@ -447,7 +460,7 @@ func startTestSSH(t *testing.T, hostKey, authKey ssh.Signer, password string, fo
 			wg.Go(func() {
 				defer host.active.Add(-1)
 				defer host.conns.Delete(conn)
-				serveSSH(conn, serverConfig, forward)
+				serveSSH(&testSSHConn{Conn: conn, dropWrites: &host.dropWrites}, serverConfig, forward)
 			})
 		}
 	})

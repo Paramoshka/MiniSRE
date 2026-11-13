@@ -185,10 +185,12 @@ func (r *Runner) runSSH(ctx context.Context, id string, processGroup bool, input
 		aborted.Store(true)
 		if session := signalSession.Load(); session != nil {
 			// Best effort; the independent remote watchdog handles lost connections.
-			_ = conn.transport.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+			// Closing the root socket also interrupts blocked writes through jump hosts.
+			timer := time.AfterFunc(100*time.Millisecond, conn.Close)
 			session.Signal(ssh.SIGTERM)
+			timer.Stop()
 		}
-		conn.transport.Close()
+		conn.Close()
 		close(callbackDone)
 	})
 	reusable := false
@@ -229,7 +231,7 @@ func newSSHSession(ctx context.Context, conn *sshClient) (*ssh.Session, error) {
 	done := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
 		aborted.Store(true)
-		_ = conn.transport.Close()
+		conn.Close()
 		close(done)
 	})
 	session, err := conn.client.NewSession()
@@ -284,11 +286,13 @@ type sshClient struct {
 
 func (c *sshClient) Close() {
 	c.closeOnce.Do(func() {
-		_ = c.client.Close()
-		_ = c.transport.Close()
+		// A tunneled transport's Close sends an SSH message and can block.
+		// Tear down the root TCP socket first to unblock the entire chain.
 		if c.parent != nil {
 			c.parent.Close()
 		}
+		_ = c.transport.Close()
+		_ = c.client.Close()
 	})
 }
 
@@ -346,6 +350,9 @@ func (r *Runner) dialSSH(ctx context.Context, id string, depth int) (*sshClient,
 	handshakeDone := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
 		handshakeAborted.Store(true)
+		if parent != nil {
+			parent.Close()
+		}
 		_ = transport.Close()
 		close(handshakeDone)
 	})
