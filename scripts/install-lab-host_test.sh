@@ -78,6 +78,13 @@ case "$command" in
       *) exit 1 ;;
     esac ;;
   containerlab) [[ $1 == version ]] ;;
+  timeout)
+    [[ $* == '--version' && ! -e $test_root/fail-timeout ]] || exit 1
+    if [[ -e $test_root/non-gnu-timeout ]]; then
+      printf 'timeout (non-GNU test fixture)\n'
+    else
+      printf 'timeout (GNU coreutils) 9.4\n'
+    fi ;;
   ip) [[ $* == '-j -4 address show' ]]; printf '[]\n' ;;
   visudo)
     [[ $1 == -cf && -s $2 && ! -e $test_root/fail-sudoers ]] ;;
@@ -106,10 +113,9 @@ chmod +x "$test_root/bin/mock"
 for command in id uname stat curl visudo systemctl install; do
   ln -s mock "$test_root/bin/$command"
 done
-for command in docker containerlab ip; do
+for command in docker containerlab ip timeout; do
   ln -s "$test_root/bin/mock" "$root/usr/bin/$command"
 done
-ln -s /usr/bin/timeout "$root/usr/bin/timeout"
 printf '0\n' > "$test_root/uid"
 printf 'x86_64\n' > "$test_root/arch"
 {
@@ -176,6 +182,11 @@ expect_failure 'non-root SSH account' --ssh-user root --mgmt-subnet 10.1.1.0/24
 mv "$root/usr/bin/ip" "$test_root/saved-ip"
 expect_failure 'Install required dependencies' "${defaults[@]}"
 mv "$test_root/saved-ip" "$root/usr/bin/ip"
+for failure in fail-timeout non-gnu-timeout; do
+  touch "$test_root/$failure"
+  expect_failure 'GNU timeout is required.' "${defaults[@]}"
+  rm -- "$test_root/$failure"
+done
 for failure in fail-docker fail-download bad-checksum fail-sudoers fail-build fail-frr fail-image-inspect; do
   : > "$test_root/calls"
   touch "$test_root/$failure"
