@@ -8,6 +8,7 @@ agent in natural language; the tool names below describe the API it uses.
 - [Command dependencies](#command-dependencies)
 - [Tool reference](#tool-reference)
 - [Services and logs](#services-and-logs), [processes](#processes), [memory and pressure](#memory-and-pressure), [files](#files)
+- [User sessions and logins](#user-sessions-and-logins)
 - [Disk space and I/O](#disk-space-and-io)
 - [Network](#network-diagnostics), [Throughput](#throughput-tests), [DNS](#dns), [HTTP](#http-checks-and-downloads), [TLS certificates](#tls-certificates)
 - [Pipelines and saved output](#pipelines-and-output-files)
@@ -26,6 +27,13 @@ Systemd probes need `systemctl` and `journalctl`; Docker probes need the Docker
 CLI and access to its daemon. These commands must be available in the SSH user's
 noninteractive PATH on remote hosts. Commands run as the current local or SSH
 user; the agent does not invoke `sudo`.
+
+Session probes need `w` from procps-ng and `loginctl` from systemd.
+`get_login_history` uses `wtmpdb` (Debian 13+) or util-linux `last` when
+present, GNU `date` to compute the cutoff on the host clock, and `stat` for the
+storage footer; when no login-record command exists (e.g. Ubuntu 25.04+) it
+returns journal events only. Journal reads require the executing user's access,
+such as `systemd-journal` group membership.
 
 Process probes require `ps` and `pgrep` from procps-ng, locally or in the SSH user's PATH.
 The `get_vmstat` probe requires procps-ng `vmstat` with `-w`, `-n`, `-y` and
@@ -86,6 +94,8 @@ The optional [containerlab tools](containerlab.md) require an explicit enabled
 | `get_service_logs` | `service`, `backend`, `scope`, `lines`, `since_minutes`, `priority`, `boot`, `output` | recent journal or container logs; systemd priority, boot and output-format filters |
 | `list_failed_services` | `scope`, default `system` | failed systemd units via `systemctl --failed`; empty output means none in that scope |
 | `list_containers` | `running_only=false`, `limit=100` | Docker containers with ID, name, image, state, status and ports; includes stopped containers by default |
+| `list_user_sessions` | optional `session_id` | active sessions via `w` and logind; `session_id` returns `loginctl session-status` details for one session |
+| `get_login_history` | optional `user`; `since_minutes=1440`, `limit=50` | login records via wtmpdb/`last` plus SSH authentication events from the journal; sources-and-storage footer |
 | `read_file` | required `path`; `start_line=1`, `lines=100`, `tail=false` | read a line range or the last lines of one file |
 | `search_file` | required `path`, `pattern`; `limit=100`, `regex=false`, `ignore_case=false` | matching lines with line numbers from one file |
 | `list_directory` | required `path`; `limit=100` | one directory level with type, size, modification time and symlink target; hidden entries are omitted |
@@ -158,6 +168,41 @@ value with `boot=previous`. `output=cat` omits timestamps, host and unit metadat
 and leaves only messages; use it as a pipeline source before `count` when
 repeated log lines would otherwise differ by timestamp. `priority`, `boot` and
 `output` are rejected for Docker logs.
+
+## User sessions and logins
+
+`list_user_sessions` combines `w` (user, TTY, remote host, login time, idle
+time, current command) with `loginctl list-sessions`. On systemd hosts `w`
+reads the logind session table rather than utmp, and the from field may be a
+hostname or an IP address depending on the procps build and what the login
+program registered. Passing `session_id` (a logind session ID such as `41` or
+`c1`) returns `loginctl session-status` for that session instead: origin,
+service, leader and processes. Reading session properties does not require
+root. An unfamiliar or long-idle session is not by itself a compromise;
+administrators often leave sessions open. Missing `w` or `loginctl` is reported
+as a limitation. The overview is also a pipeline source (without `session_id`).
+
+`get_login_history` reports login records and SSH authentication events for a
+time window. Login records come from `wtmpdb last` (SQLite `/var/log/wtmp.db`,
+Debian 13+) or util-linux `last` (`/var/log/wtmp`); the probe detects which is
+available and falls back to journal-only when neither exists (Ubuntu 25.04+
+ships neither). The cutoff is computed on the host with GNU `date` because
+wtmpdb accepts only absolute timestamps and the host clock is authoritative.
+`user` filters login records only, not journal events. SSH events are read with
+`journalctl -t sshd -t sshd-session -g 'Accepted|Failed|Invalid user'`:
+OpenSSH 9.8+ logs authentication as `sshd-session` while the listener logs as
+`sshd`, and matching identifiers also covers socket-activated `sshd@` units.
+
+The footer lists the sources used and the presence, mode and owner of
+`/var/log/journal`, `/var/log/wtmp.db`, `/var/log/wtmp`,
+`/var/log/audit/audit.log` and `/var/log/auth.log`. These are facts, not
+accusations: a default Debian 13 keeps the journal volatile (no
+`/var/log/journal`, history lost at reboot), `wtmp.db` only exists once wtmpdb
+has recorded a login, and `audit.log` is normally readable only by root or
+`adm`. Absent or unreadable storage is a check limitation, not by itself
+evidence of tampering. When `auth.log` exists (rsyslog systems), `search_file`
+can inspect it. See the [login-traces research notes](research/linux-login-traces.md)
+for the distro matrix and primary sources.
 
 ## Disk space and I/O
 

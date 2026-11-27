@@ -236,6 +236,28 @@ func baseDefinitions() []Definition {
 			}),
 		},
 		{
+			Name:        "list_user_sessions",
+			Description: "Show active login sessions: w output (user, TTY, remote host, login time, idle, current command) and the logind session list. On systemd hosts w reads logind, not utmp; the from field may be a hostname or IP depending on the procps build and what the login program registered. Set session_id to one logind session ID (like 41 or c1) to return loginctl session-status details instead: origin, service, leader and processes. An unfamiliar or long-idle session is not by itself a compromise; administrators often leave sessions open. Defaults: host_id=local. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"session_id":{"type":"string","maxLength":16,"pattern":"^([0-9]+|c[0-9]+)$","description":"One logind session ID from the session list; returns session-status details instead of the overview."}},"additionalProperties":false}`),
+			Run: standard(func(ctx context.Context, t *Tools, args toolArgs) (string, error) {
+				return t.UserSessions(ctx, args)
+			}),
+			Pipeline: pipelineStage(func(_ context.Context, _ *Tools, args toolArgs) (remote.Stage, error) {
+				if args.SessionID != "" {
+					return remote.Stage{}, errors.New("tools: session_id is not supported as a pipeline source")
+				}
+				return remote.Stage{Commands: sessionsCommands()}, nil
+			}),
+		},
+		{
+			Name:        "get_login_history",
+			Description: "Show recent logins and SSH authentication events, including failed attempts. Login records come from wtmpdb (SQLite /var/log/wtmp.db, Debian 13+) or util-linux last (/var/log/wtmp); when neither exists (e.g. Ubuntu 25.04+) only journal events are returned. SSH events match Accepted, Failed and Invalid user messages from the sshd and sshd-session journal identifiers. user filters login records only, not journal events. The cutoff is computed on the host clock. A footer reports which sources were used and the presence, mode and owner of journal, wtmp/wtmpdb, audit and auth.log storage; absent storage or an unreadable audit.log is a check limitation, not by itself evidence of tampering. Defaults: host_id=local, since_minutes=1440, limit=50. Read-only.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string","description":"Host ID from list_hosts; default local."},"user":{"type":"string","maxLength":32,"pattern":"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$","description":"Optional login name; filters login records only."},"since_minutes":{"type":"integer","minimum":1,"maximum":43200,"description":"Window in minutes on the host clock; default 1440 (24 hours)."},"limit":{"type":"integer","minimum":1,"maximum":500,"description":"Maximum login records and maximum journal events; default 50."}},"additionalProperties":false}`),
+			Run: standard(func(ctx context.Context, t *Tools, args toolArgs) (string, error) {
+				return t.LoginHistory(ctx, args)
+			}),
+		},
+		{
 			Name:        "read_file",
 			Description: "Read a range of lines or the last lines of one regular file. Requires an absolute path; hidden components are forbidden in both the requested path and resolved symlink target. Sensitive /proc files (environ, cmdline, mem, fd, fdinfo) are forbidden. Defaults: host_id=local, start_line=1, lines=100. Set tail=true to read the end; do not supply start_line with tail=true. No follow mode.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"host_id":{"type":"string"},"path":{"type":"string","description":"Absolute path to one regular file; hidden components, . and .. are forbidden."},"start_line":{"type":"integer","minimum":1,"description":"First line, numbered from 1; default 1. Cannot be supplied with tail=true."},"lines":{"type":"integer","minimum":1,"maximum":500,"description":"Number of lines; default 100."},"tail":{"type":"boolean","description":"Read the last lines instead of a range; default false."}},"required":["path"],"additionalProperties":false}`),

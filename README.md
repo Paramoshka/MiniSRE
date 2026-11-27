@@ -13,6 +13,7 @@ and explains what it found.
 - Memory, swap, PSI pressure stalls and OOM/reclaim counters.
 - Filesystem space and inode usage, largest subdirectories, and short per-device I/O latency/queue samples.
 - Systemd services, failed units, Docker containers and their recent logs.
+- Active login sessions, recent logins and SSH authentication events, with wtmp/wtmpdb detection and a journal-only fallback.
 - Kernel and journal errors by severity, including the previous boot.
 - Config files and directories: selected lines, matching text, or directory contents with types, sizes and symlink targets.
 - Network interfaces, routes, policy rules, neighbors, sockets, ping, TCP port and TLS certificate checks.

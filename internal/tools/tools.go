@@ -76,6 +76,9 @@ type toolArgs struct {
 	Regex        bool   `json:"regex"`
 	IgnoreCase   bool   `json:"ignore_case"`
 
+	SessionID string `json:"session_id"`
+	User      string `json:"user"`
+
 	Family          string  `json:"family"`
 	Interface       string  `json:"interface"`
 	Table           string  `json:"table"`

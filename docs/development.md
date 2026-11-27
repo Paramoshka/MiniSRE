@@ -71,8 +71,9 @@ archives use stable filenames so the installer can select one by architecture.
 - `internal/session` - shared history and agent loop (up to 5 tool call rounds, then a final answer without tools);
 - `internal/tools` - probes and their JSON schemas for the model;
   `load.go`, `vmstat.go`, `disk.go`, `memory.go`, `processes.go`, `service.go`,
-  `containers.go`, `directories.go`, `files.go`, `network.go`, `connectivity.go`,
-  `throughput.go` and `tls.go` contain the individual probes; `pipeline.go` and
+  `containers.go`, `sessions.go`, `logins.go`, `directories.go`, `files.go`,
+  `network.go`, `connectivity.go`, `throughput.go` and `tls.go` contain the
+  individual probes; `pipeline.go` and
   `pipeline_spec.go` implement the filter pipeline;
 - `internal/config`, `internal/remote` - YAML hosts and local/SSH command execution;
 - `internal/telegram` - Bot API polling, authorization and chat sessions;
@@ -85,6 +86,8 @@ to validate the installed containerlab version and image digests before enabling
 
 ## Notes
 
+- Login-audit research (distro matrix, primary sources, unverified facts) behind
+  the session probes: [docs/research/linux-login-traces.md](research/linux-login-traces.md).
 - DeepSeek context caching is server-side and automatic, there is no API setting; only
   `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` are observable.
 - Temperature has no effect with `-thinking`: the model enables thinking by default,
