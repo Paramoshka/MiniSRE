@@ -192,6 +192,12 @@ func TestPipelineSchemaSourcesAndFilters(t *testing.T) {
 				t.Fatalf("pipeline get_top_processes modes = %v", modes)
 			}
 		}
+		if tool == "list_user_sessions" {
+			args := variant["args"].(map[string]any)["properties"].(map[string]any)
+			if _, ok := args["session_id"]; ok {
+				t.Fatal("pipeline list_user_sessions must not advertise session_id")
+			}
+		}
 	}
 	if !tcp || excluded != "" {
 		t.Fatalf("pipeline sources: tcp=%t unexpected=%q", tcp, excluded)

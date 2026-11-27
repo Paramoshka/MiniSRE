@@ -183,8 +183,8 @@ administrators often leave sessions open. Missing `w` or `loginctl` is reported
 as a limitation. The overview is also a pipeline source (without `session_id`).
 
 `get_login_history` reports login records and SSH authentication events for a
-time window. Login records come from `wtmpdb last` (SQLite `/var/log/wtmp.db`,
-Debian 13+) or util-linux `last` (`/var/log/wtmp`); the probe detects which is
+time window. Login records come from `wtmpdb last` (SQLite, Debian 13+) or
+util-linux `last` (`/var/log/wtmp`); the probe detects which is
 available and falls back to journal-only when neither exists (Ubuntu 25.04+
 ships neither). The cutoff is computed on the host with GNU `date` because
 wtmpdb accepts only absolute timestamps and the host clock is authoritative.
@@ -194,15 +194,19 @@ OpenSSH 9.8+ logs authentication as `sshd-session` while the listener logs as
 `sshd`, and matching identifiers also covers socket-activated `sshd@` units.
 
 The footer lists the sources used and the presence, mode and owner of
-`/var/log/journal`, `/var/log/wtmp.db`, `/var/log/wtmp`,
-`/var/log/audit/audit.log` and `/var/log/auth.log`. These are facts, not
-accusations: a default Debian 13 keeps the journal volatile (no
-`/var/log/journal`, history lost at reboot), `wtmp.db` only exists once wtmpdb
-has recorded a login, and `audit.log` is normally readable only by root or
-`adm`. Absent or unreadable storage is a check limitation, not by itself
-evidence of tampering. When `auth.log` exists (rsyslog systems), `search_file`
-can inspect it. See the [login-traces research notes](research/linux-login-traces.md)
-for the distro matrix and primary sources.
+`/var/log/journal`, `/var/log/wtmp.db` and `/var/lib/wtmpdb/wtmp.db` (Debian
+and upstream wtmpdb locations), `/var/log/wtmp`, `/var/log/audit/audit.log`,
+`/var/log/auth.log` (Debian-family rsyslog) and `/var/log/secure` (RHEL-family
+rsyslog). These are facts, not accusations: a default Debian 13 keeps the
+journal volatile (no `/var/log/journal`, history lost at reboot), `wtmp.db`
+only exists once wtmpdb has recorded a login, and `audit.log` is normally
+readable only by root or `adm`. A path that cannot be stat'ed (for example
+through Debian's 0750 root:adm `/var/log/audit` directory) is reported as
+status unknown, not absent. Absent or unreadable storage is a check
+limitation, not by itself evidence of tampering. When `auth.log` or `secure`
+exists (rsyslog systems), `search_file` can inspect it. See the
+[login-traces research notes](research/linux-login-traces.md) for the distro
+matrix and primary sources.
 
 ## Disk space and I/O
 

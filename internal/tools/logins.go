@@ -16,12 +16,17 @@ var loginUserName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$`)
 // Storage inspected for the sources footer. Absence is reported as a fact:
 // a volatile journal (no /var/log/journal) is the Debian 13 default, and
 // wtmp.db only exists once wtmpdb is installed and has recorded a login.
+// wtmpdb lives at /var/log/wtmp.db on Debian but /var/lib/wtmpdb/wtmp.db
+// upstream; rsyslog auth logs are auth.log on Debian-family and secure on
+// RHEL-family hosts.
 var loginStoragePaths = []string{
 	"/var/log/journal",
 	"/var/log/wtmp.db",
+	"/var/lib/wtmpdb/wtmp.db",
 	"/var/log/wtmp",
 	"/var/log/audit/audit.log",
 	"/var/log/auth.log",
+	"/var/log/secure",
 }
 
 // sshAuthEventsPattern matches openssh auth_log() messages: "Accepted <method>
@@ -100,7 +105,10 @@ func (t *Tools) LoginHistory(ctx context.Context, args toolArgs) (string, error)
 
 	label := "last (/var/log/wtmp)"
 	if program == "wtmpdb" {
-		label = "wtmpdb last (SQLite /var/log/wtmp.db)"
+		// Do not assert a DB path: Debian patches it to /var/log/wtmp.db,
+		// upstream defaults to /var/lib/wtmpdb/wtmp.db. The footer shows
+		// which storage actually exists.
+		label = "wtmpdb last (SQLite)"
 	}
 	cmd := loginRecordsCommand(program, limit, since, args.User)
 	if result, err := t.command(ctx, args.HostID, cmd.Program, cmd.Args...); err == nil {
@@ -143,16 +151,36 @@ func (t *Tools) LoginHistory(ctx context.Context, args toolArgs) (string, error)
 }
 
 // loginStorageFooter reports presence, mode and owner of the login-audit
-// storage. stat exits 1 when some operands are missing; partial output is
-// expected and absent paths are reported as facts, not accusations.
+// storage. stat exits 1 when some operands fail; only "No such file or
+// directory" proves absence, while EACCES (e.g. Debian's 0750 root:adm
+// /var/log/audit) means the status is unknown. Absent paths are reported as
+// facts, not accusations.
 func (t *Tools) loginStorageFooter(ctx context.Context, hostID string) string {
-	statArgs := append([]string{"-c", "%n mode=%a owner=%U:%G"}, loginStoragePaths...)
+	// -L dereferences symlinks: Debian's /var/lib/wtmpdb/wtmp.db links to
+	// /var/log/wtmp.db, and the target's mode governs readability.
+	statArgs := append([]string{"-Lc", "%n mode=%a owner=%U:%G"}, loginStoragePaths...)
 	result, err := t.Runner.Run(ctx, hostID, "stat", statArgs...)
 	present := make(map[string]string)
 	for _, line := range strings.Split(result.Stdout, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 3 {
 			present[fields[0]] = strings.Join(fields[1:], " ")
+		}
+	}
+	// GNU stat (LC_ALL=C) reports each failed operand on stderr as
+	// "stat: cannot stat[x] '<path>': <reason>". Match the quoted path
+	// exactly so /var/log/wtmp does not match /var/log/wtmp.db lines.
+	failed := make(map[string]string)
+	for _, line := range strings.Split(result.Stderr, "\n") {
+		for _, path := range loginStoragePaths {
+			marker := "'" + path + "': "
+			idx := strings.Index(line, marker)
+			if idx < 0 {
+				continue
+			}
+			if reason := strings.TrimSpace(line[idx+len(marker):]); reason != "No such file or directory" {
+				failed[path] = reason
+			}
 		}
 	}
 	var lines []string
@@ -163,6 +191,8 @@ func (t *Tools) loginStorageFooter(ctx context.Context, hostID string) string {
 			lines = append(lines, path+": "+info+" (persistent journal)")
 		case ok:
 			lines = append(lines, path+": "+info)
+		case failed[path] != "":
+			lines = append(lines, path+": status unknown ("+failed[path]+"; a check limitation, not evidence of absence)")
 		case path == "/var/log/journal":
 			lines = append(lines, path+": absent (volatile journal; history is lost at reboot; absence alone is not evidence of tampering)")
 		case path == "/var/log/audit/audit.log":
@@ -171,8 +201,9 @@ func (t *Tools) loginStorageFooter(ctx context.Context, hostID string) string {
 			lines = append(lines, path+": absent")
 		}
 	}
-	// stat exits 1 when some operands are missing; that is expected data, not
-	// an execution failure. Any other failure means the inspection itself broke.
+	// stat exits 1 when some operands are missing or unreadable; that is
+	// expected data, not an execution failure. Any other failure means the
+	// inspection itself broke.
 	if err != nil && result.ExitCode != 1 {
 		lines = append(lines, fmt.Sprintf("storage inspection unavailable: %v", err))
 	}

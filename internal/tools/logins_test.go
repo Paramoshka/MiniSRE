@@ -46,16 +46,18 @@ func TestLoginHistoryWtmpdb(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Login history on local (last 1440 minutes, limit 50):",
-		"Login records via wtmpdb last (SQLite /var/log/wtmp.db):",
+		"Login records via wtmpdb last (SQLite):",
 		"still logged in",
 		"SSH authentication events (sshd, sshd-session):",
 		"Accepted publickey for ivan",
 		"Sources and storage:",
 		"/var/log/journal: mode=2755 owner=root:systemd-journal (persistent journal)",
 		"/var/log/wtmp.db: mode=644 owner=root:root",
+		"/var/lib/wtmpdb/wtmp.db: absent",
 		"/var/log/wtmp: absent",
 		"/var/log/audit/audit.log: absent (auditd may not be installed)",
 		"/var/log/auth.log: absent",
+		"/var/log/secure: absent",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("login history missing %q:\n%s", want, out)
@@ -71,7 +73,7 @@ func TestLoginHistoryWtmpdb(t *testing.T) {
 	if got := fakeArgs(t, dir, "journalctl"); got != wantJournal {
 		t.Errorf("journalctl args = %q, want %q", got, wantJournal)
 	}
-	wantStat := "-c\n%n mode=%a owner=%U:%G\n/var/log/journal\n/var/log/wtmp.db\n/var/log/wtmp\n/var/log/audit/audit.log\n/var/log/auth.log\n"
+	wantStat := "-Lc\n%n mode=%a owner=%U:%G\n/var/log/journal\n/var/log/wtmp.db\n/var/lib/wtmpdb/wtmp.db\n/var/log/wtmp\n/var/log/audit/audit.log\n/var/log/auth.log\n/var/log/secure\n"
 	if got := fakeArgs(t, dir, "stat"); got != wantStat {
 		t.Errorf("stat args = %q, want %q", got, wantStat)
 	}
@@ -218,16 +220,44 @@ func TestLoginStorageFooter(t *testing.T) {
 			"/var/log/wtmp.db mode=644 owner=root:root\n" +
 			"/var/log/wtmp mode=644 owner=root:utmp\n" +
 			"/var/log/audit/audit.log mode=640 owner=root:adm\n" +
-			"/var/log/auth.log mode=640 owner=root:adm\n", exit: "0"},
+			"/var/log/auth.log mode=640 owner=root:adm\n" +
+			"/var/log/secure mode=600 owner=root:root\n", exit: "0"},
 	})
 	footer = tools.loginStorageFooter(context.Background(), "")
 	for _, want := range []string{
 		"/var/log/journal: mode=2755 owner=root:systemd-journal (persistent journal)",
 		"/var/log/wtmp: mode=644 owner=root:utmp",
 		"/var/log/audit/audit.log: mode=640 owner=root:adm",
+		"/var/log/secure: mode=600 owner=root:root",
 	} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("present footer missing %q:\n%s", want, footer)
 		}
+	}
+
+	// EACCES is not absence: Debian's /var/log/audit is 0750 root:adm, so an
+	// unprivileged stat fails with Permission denied. A wtmp.db failure must
+	// not mark the /var/log/wtmp prefix as unreadable.
+	fakePrograms(t, map[string]fakeProgram{
+		"stat": {
+			stdout: "/var/log/journal mode=2755 owner=root:systemd-journal\n",
+			stderr: "stat: cannot statx '/var/log/wtmp.db': Permission denied\n" +
+				"stat: cannot statx '/var/log/audit/audit.log': Permission denied\n" +
+				"stat: cannot statx '/var/log/wtmp': No such file or directory\n",
+			exit: "1",
+		},
+	})
+	footer = tools.loginStorageFooter(context.Background(), "")
+	for _, want := range []string{
+		"/var/log/wtmp.db: status unknown (Permission denied; a check limitation, not evidence of absence)",
+		"/var/log/audit/audit.log: status unknown (Permission denied; a check limitation, not evidence of absence)",
+		"/var/log/wtmp: absent",
+	} {
+		if !strings.Contains(footer, want) {
+			t.Errorf("EACCES footer missing %q:\n%s", want, footer)
+		}
+	}
+	if strings.Contains(footer, "/var/log/wtmp: status unknown") {
+		t.Fatalf("wtmp.db failure leaked into the wtmp prefix:\n%s", footer)
 	}
 }

@@ -84,6 +84,12 @@ positional filters. TIME also accepts relative `-number[smhd]` (e.g. `-5m`,
   confirmed for default Debian 13.
   <https://deb.debian.org/debian/pool/main/r/rsyslog/>
 - SSH auth messages reach journald via syslog(3) (openssh `log.c`).
+- RHEL-family rsyslog writes authpriv to **`/var/log/secure`**, not
+  `/var/log/auth.log`: CentOS Stream 10 `rsyslog.conf` ships
+  `authpriv.* action(type="omfile" file="/var/log/secure")`, and the package
+  `%post` creates `/var/log/{messages,secure,maillog,spooler}`.
+  <https://gitlab.com/redhat/centos-stream/rpms/rsyslog/-/raw/c10s/rsyslog.conf>,
+  <https://gitlab.com/redhat/centos-stream/rpms/rsyslog/-/raw/c10s/rsyslog.spec>
 - Unit name: Debian `openssh-server` ships `ssh.service` **with
   `Alias=sshd.service`** (active when enabled), plus `ssh.socket` and
   `sshd@.service` for socket activation. RHEL-family uses `sshd.service`.
@@ -233,6 +239,13 @@ Sources: <https://launchpad.net/ubuntu/+source/util-linux/+publishinghistory>,
   and socket activation) and grep `Accepted|Failed|Invalid user`.
 - Report storage facts (presence, mode, owner) neutrally; absent
   `/var/log/journal` or `wtmp.db` is not tamper evidence without a baseline.
+- Inspect both wtmpdb locations (`/var/log/wtmp.db` on Debian,
+  `/var/lib/wtmpdb/wtmp.db` upstream) and both rsyslog auth logs
+  (`auth.log` on Debian-family, `secure` on RHEL-family); do not assert a
+  distro-specific path in labels.
+- Distinguish ENOENT from EACCES when stat'ing storage: Debian's
+  `/var/log/audit` is 0750 root:adm, so an unprivileged stat fails with
+  Permission denied — that is unknown status, not absence.
 - audit.log is normally unreadable by the mini-sre user: report a limitation,
   never attempt privilege escalation.
 
